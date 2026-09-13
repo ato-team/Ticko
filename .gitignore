@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.DS_Store
+
+# Konfigurasi asli tidak pernah masuk repo — hanya *.example.toml
+config/*.toml
+!config/*.example.toml
+.env
+.env.*
+!.env.example
+
+# Data lokal
+*.log
+.bun/
+coverage/
+graft/
