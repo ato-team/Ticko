@@ -58,17 +58,21 @@ konfigurasi untuk hal yang tidak pernah berubah.
 
 ## Batas kepemilikan
 
-Dev A = `@rizaldiabyannata`, Dev B = `@yawpie` (juga di `.github/CODEOWNERS`). Jangan menyentuh
-file milik orang lain tanpa kesepakatan tertulis di issue/PR.
+Per 2026-09-14 **seluruh backlog (A-, B-, AB-) dikerjakan `@rizaldiabyannata`**. Label
+A/B di Backlog tetap dipakai sebagai penanda wilayah kode, bukan penanda orang.
 
-| Path | Pemilik |
+Menyerahkan tugas ke dev lain **wajib didahului konsultasi batas aman** — tugas apa, file
+mana yang boleh disentuh, kontrak mana yang jadi batasnya — dan hasilnya dicatat di issue
+serta di `.github/CODEOWNERS` sebelum pekerjaan dimulai. Tanpa itu, jangan menyentuh
+kode di luar tugas yang diserahkan.
+
+| Wilayah | Status delegasi |
 |---|---|
-| `packages/domain/src/{state.ts,conversation.ts,time/}` | Dev A |
-| `packages/domain/src/{channel.ts,event.ts}` | Dev B |
-| `packages/domain/src/{message.ts,ids.ts}` | **Bersama** — butuh approval keduanya |
-| `packages/{storage,agent,worker}/` | Dev A |
-| `packages/{channels,api,rag}/`, `apps/desk/` | Dev B |
-| `packages/storage/migrations/` | **Dev A saja.** Dev B mengajukan lewat issue template "Perubahan skema" |
+| `packages/rag/` (B-4.4 … B-4.7) | Kandidat aman — antarmuka sempit (Kontrak 5) |
+| `packages/channels/` di balik `ChannelAdapter` | Kandidat aman — Kontrak 1–2, ada `MockChannelAdapter` |
+| `apps/desk/` | Kandidat aman — Kontrak 7, same-origin |
+| `packages/domain/src/state.ts`, `packages/storage/migrations/`, dispatcher / `control_owner`, seluruh Sprint 3 | **Tidak diserahkan** — jalur Handoff Integrity |
+| Sisanya | Dikonsultasikan per tugas |
 
 ## Prosedur wajib
 

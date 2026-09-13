@@ -21,27 +21,26 @@ Aturan di sini bukan selera. Masing-masing lahir dari satu kelas bug yang ingin 
 
 ## 1. Kepemilikan Kode
 
-### Per file, bukan per package
+### Satu developer, label A/B = wilayah kode
 
-Package `domain` dipakai semua orang, jadi kepemilikannya dipecah lebih halus:
+Per 2026-09-14 seluruh backlog dikerjakan `@rizaldiabyannata`. Label A/B di Backlog dan di dokumen ini menandai **wilayah kode**, bukan orang. Batas antar-wilayah tetap dijaga lewat kontrak dan test double (§2), karena batas itulah yang memungkinkan tugas diserahkan nanti tanpa tumpang tindih.
 
-| Path | Pemilik | Aturan |
+| Path | Wilayah | Status delegasi |
 |---|---|---|
-| `domain/src/state.ts` | Dev A | B tidak menyentuh |
-| `domain/src/time/` | Dev A | B tidak menyentuh |
-| `domain/src/conversation.ts` | Dev A | B tidak menyentuh |
-| `domain/src/channel.ts` | Dev B | A tidak menyentuh |
-| `domain/src/event.ts` | Dev B | A tidak menyentuh |
-| `domain/src/message.ts` | **Bersama** | Perubahan butuh approval keduanya |
-| `domain/src/ids.ts` | **Bersama** | Perubahan butuh approval keduanya |
-| `storage/`, `agent/`, `worker/` | Dev A | B memakai lewat interface |
-| `channels/`, `api/` | Dev B | — |
-| `rag/` | Dev B | — |
-| `apps/desk/` | Dev B | — |
+| `domain/src/state.ts`, `time/`, `conversation.ts` | A | Tidak diserahkan |
+| `domain/src/channel.ts`, `event.ts` | B | Ikut tugas channel/desk yang diserahkan |
+| `domain/src/message.ts`, `ids.ts` | Bersama | Tidak diserahkan — dipakai semua wilayah |
+| `storage/`, `agent/`, `worker/` | A | Tidak diserahkan — jalur Handoff Integrity |
+| `channels/` | B | Kandidat aman — di balik `ChannelAdapter` (Kontrak 1–2) |
+| `api/` | B | Dikonsultasikan per tugas |
+| `rag/` | B | Kandidat aman — Kontrak 5 |
+| `apps/desk/` | B | Kandidat aman — Kontrak 7 |
+
+**Menyerahkan tugas wajib didahului konsultasi batas aman:** tugas apa, file mana yang boleh disentuh, kontrak mana yang jadi batasnya. Hasilnya dicatat di issue dan `.github/CODEOWNERS` sebelum pekerjaan dimulai. Dev yang menerima tugas tidak menyentuh file di luar daftar itu.
 
 ### Migrasi database punya satu penulis
 
-**Hanya Dev A yang boleh menambah file di `migrations/`,** dan hanya Dev A yang menjalankan `drizzle-kit generate`. Dev B mengajukan kebutuhan skema lewat issue dengan format: tabel apa, kolom apa, index apa, dipakai untuk apa.
+**Hanya `@rizaldiabyannata` yang menambah file di `migrations/` dan menjalankan `drizzle-kit generate`,** termasuk setelah ada tugas yang diserahkan. Dev lain mengajukan kebutuhan skema lewat issue template "Perubahan skema" dengan format: tabel apa, kolom apa, index apa, dipakai untuk apa.
 
 Terdengar kaku, tapi skema database adalah satu-satunya hal di proyek ini yang benar-benar tidak boleh punya dua penulis. Penamaan migrasi berbasis timestamp akan bentrok kalau dua orang membuatnya di hari yang sama, dan menyelesaikan konflik migrasi jauh lebih mahal daripada menunggu satu hari.
 

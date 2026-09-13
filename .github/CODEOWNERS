@@ -1,21 +1,6 @@
-# Dev A = @rizaldiabyannata, Dev B = @yawpie. Baris terakhir yang cocok menang.
+# Per 2026-09-14 seluruh backlog dikerjakan @rizaldiabyannata (lihat AGENTS.md "Batas kepemilikan").
+# Tugas yang diserahkan setelah konsultasi batas aman: tambahkan baris path spesifik untuk dev tersebut.
+# Baris terakhir yang cocok menang.
 # Tanpa ruleset (repo private, org Free) file ini hanya meminta reviewer, tidak memblokir merge.
 
-*                                       @rizaldiabyannata @yawpie
-
-/packages/storage/                      @rizaldiabyannata
-/packages/agent/                        @rizaldiabyannata
-/packages/worker/                       @rizaldiabyannata
-/packages/domain/src/state.ts           @rizaldiabyannata
-/packages/domain/src/conversation.ts    @rizaldiabyannata
-/packages/domain/src/time/              @rizaldiabyannata
-
-/packages/channels/                     @yawpie
-/packages/api/                          @yawpie
-/packages/rag/                          @yawpie
-/apps/desk/                             @yawpie
-/packages/domain/src/channel.ts         @yawpie
-/packages/domain/src/event.ts           @yawpie
-
-/packages/domain/src/message.ts         @rizaldiabyannata @yawpie
-/packages/domain/src/ids.ts             @rizaldiabyannata @yawpie
+*                                       @rizaldiabyannata
