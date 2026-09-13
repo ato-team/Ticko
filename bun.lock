@@ -10,6 +10,10 @@
         "typescript": "^7.0.2",
       },
     },
+    "apps/desk": {
+      "name": "@ticko/desk",
+      "version": "0.0.0",
+    },
     "packages/agent": {
       "name": "@ticko/agent",
       "version": "0.0.0",
@@ -63,6 +67,8 @@
     "@ticko/api": ["@ticko/api@workspace:packages/api"],
 
     "@ticko/channels": ["@ticko/channels@workspace:packages/channels"],
+
+    "@ticko/desk": ["@ticko/desk@workspace:apps/desk"],
 
     "@ticko/domain": ["@ticko/domain@workspace:packages/domain"],
 

@@ -507,7 +507,7 @@ bun run check:domain-deps   # domain tidak boleh punya dependensi IO
 
 Kelimanya wajib hijau sebelum merge. Warning diperlakukan sebagai error, tanpa pengecualian — kalau satu warning dibiarkan, dalam dua minggu akan ada lima puluh.
 
-Baris terakhir mengecek `packages/domain/package.json` tidak punya dependensi runtime selain Luxon dan Zod. Ini menggantikan jaminan yang dulu diberikan pemisahan crate.
+Baris terakhir mengecek `packages/domain` hanya bergantung pada Luxon dan Zod — di `package.json` (`dependencies`, `peerDependencies`, `optionalDependencies`) **dan** di setiap `import` pada `src/` dan `tests/` (termasuk `node:*`/`bun:*`, kecuali `bun:test` di tests). Memeriksa `package.json` saja tidak cukup: workspace Bun meng-hoist `node_modules`, sehingga paket yang tidak terdaftar tetap bisa diimpor. Ini menggantikan jaminan yang dulu diberikan pemisahan crate.
 
 ### Konfigurasi TypeScript minimum
 
