@@ -14,3 +14,7 @@ config/*.toml
 .bun/
 coverage/
 graft/
+
+# Instruksi agent per mesin
+CLAUDE.local.md
+.claude/settings.local.json
