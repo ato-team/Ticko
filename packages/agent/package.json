@@ -9,6 +9,7 @@
 	},
 	"dependencies": {
 		"@ticko/domain": "workspace:*",
+		"@ticko/storage": "workspace:*",
 		"zod": "^4.6.4"
 	}
 }

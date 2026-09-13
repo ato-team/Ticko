@@ -10,6 +10,7 @@ import {
 	index,
 	integer,
 	jsonb,
+	numeric,
 	pgEnum,
 	pgTable,
 	text,
@@ -27,6 +28,11 @@ export const conversationStatusEnum = pgEnum(
 );
 export const controlOwnerEnum = pgEnum("control_owner", ControlOwner.enum);
 export const userRoleEnum = pgEnum("user_role", ["admin", "agent"]);
+export const agentRunStatusEnum = pgEnum("agent_run_status", [
+	"succeeded",
+	"failed",
+	"discarded",
+]);
 export const jobStatusEnum = pgEnum("job_status", [
 	"pending",
 	"running",
@@ -156,5 +162,47 @@ export const jobs = pgTable(
 			.on(t.runAfter)
 			.where(sql`${t.status} = 'pending'`),
 		index("jobs_conversation_id_status_idx").on(t.conversationId, t.status),
+	],
+);
+
+// Jejak setiap pemanggilan LLM (AC-3.6): prompt, respons mentah, token,
+// latensi, biaya. `discarded` = jawaban dibuang karena control_owner berubah
+// selama LLM berjalan.
+export const agentRuns = pgTable(
+	"agent_runs",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		conversationId: uuid("conversation_id")
+			.notNull()
+			.references(() => conversations.id),
+		messageId: uuid("message_id")
+			.notNull()
+			.references(() => messages.id),
+		replyMessageId: uuid("reply_message_id").references(() => messages.id),
+		traceId: text("trace_id").notNull(),
+		status: agentRunStatusEnum("status").notNull(),
+		model: text("model").notNull(),
+		prompt: jsonb("prompt").notNull(),
+		response: text("response"),
+		error: text("error"),
+		promptTokens: integer("prompt_tokens").notNull().default(0),
+		completionTokens: integer("completion_tokens").notNull().default(0),
+		costEstimate: numeric("cost_estimate", {
+			precision: 12,
+			scale: 6,
+			mode: "number",
+		})
+			.notNull()
+			.default(0),
+		latencyMs: integer("latency_ms").notNull().default(0),
+		// Sumber jawaban dari basis pengetahuan (AC-7.5), terisi mulai Sprint 4.
+		kbChunkIds: uuid("kb_chunk_ids").array().notNull().default(sql`'{}'`),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		index("agent_runs_conversation_id_created_at_idx").on(
+			t.conversationId,
+			t.createdAt,
+		),
 	],
 );
