@@ -192,6 +192,14 @@ export async function insertOutbound(
 	return MessageId.parse(row?.id);
 }
 
+export async function getMessage(
+	ex: Executor,
+	id: MessageId,
+): Promise<StoredMessage | null> {
+	const [row] = await ex.select().from(messages).where(eq(messages.id, id));
+	return row ? StoredMessage.parse(row) : null;
+}
+
 /** N pesan terakhir, urut dari yang paling lama. */
 export async function listRecentMessages(
 	ex: Executor,

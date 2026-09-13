@@ -7,8 +7,10 @@
 		".": "./src/index.ts"
 	},
 	"dependencies": {
+		"@ticko/channels": "workspace:*",
 		"@ticko/domain": "workspace:*",
 		"@ticko/storage": "workspace:*",
+		"@ticko/worker": "workspace:*",
 		"hono": "^4.13.7"
 	}
 }

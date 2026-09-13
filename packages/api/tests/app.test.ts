@@ -17,7 +17,12 @@ const down = async () => ({ ok: false });
 
 test("GET /health 200 dengan status database dan redis", async () => {
 	const { log } = capture();
-	const app = createApp({ log, checkDatabase: up, checkRedis: up });
+	const app = createApp({
+		log,
+		checkDatabase: up,
+		checkRedis: up,
+		webhooks: null,
+	});
 	const res = await app.request("/health");
 	expect(res.status).toBe(200);
 	expect(await res.json()).toEqual({
@@ -29,7 +34,12 @@ test("GET /health 200 dengan status database dan redis", async () => {
 
 test("GET /health 503 saat salah satu dependensi mati", async () => {
 	const { log } = capture();
-	const app = createApp({ log, checkDatabase: down, checkRedis: up });
+	const app = createApp({
+		log,
+		checkDatabase: down,
+		checkRedis: up,
+		webhooks: null,
+	});
 	const res = await app.request("/health");
 	expect(res.status).toBe(503);
 	expect(await res.json()).toMatchObject({ database: "down", redis: "ok" });
@@ -37,7 +47,12 @@ test("GET /health 503 saat salah satu dependensi mati", async () => {
 
 test("log request berupa JSON dengan trace_id", async () => {
 	const { log, lines } = capture();
-	const app = createApp({ log, checkDatabase: up, checkRedis: up });
+	const app = createApp({
+		log,
+		checkDatabase: up,
+		checkRedis: up,
+		webhooks: null,
+	});
 	await app.request("/health");
 	await app.request("/health");
 	expect(lines).toHaveLength(2);
