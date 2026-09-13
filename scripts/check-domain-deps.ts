@@ -19,7 +19,7 @@ for (const field of [
 // package.json tetap ter-resolve. Import di source juga harus diperiksa.
 const importRe = /(?:from|import|require)\s*\(?\s*["']([^"']+)["']/g;
 for await (const file of new Glob(
-	"packages/domain/{src,tests}/**/*.ts",
+	"packages/domain/{src,tests}/**/*.{ts,tsx,mts,cts}",
 ).scan()) {
 	const src = await Bun.file(file).text();
 	for (const [, spec = ""] of src.matchAll(importRe)) {
