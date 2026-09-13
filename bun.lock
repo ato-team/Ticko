@@ -25,6 +25,9 @@
     "packages/channels": {
       "name": "@ticko/channels",
       "version": "0.0.0",
+      "dependencies": {
+        "@ticko/domain": "workspace:*",
+      },
     },
     "packages/domain": {
       "name": "@ticko/domain",
