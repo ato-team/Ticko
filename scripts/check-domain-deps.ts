@@ -1,19 +1,23 @@
 import { Glob } from "bun";
 
-// Hanya bentuk import yang sah: `from "x"` harus berada di statement
-// import/export, dan `import(`/`require(` harus kata utuh — agar
-// `Array.from("abc")` atau `Buffer.from('x')` tidak dianggap import.
-const importRes = [
-	/^\s*(?:import|export)\b[^'";]*?\bfrom\s*["']([^"']+)["']/gm,
-	/^\s*import\s*["']([^"']+)["']/gm,
-	/\b(?:import|require)\s*\(\s*["']([^"']+)["']/g,
-];
+// Parser Bun, bukan regex: komentar, string, dan beberapa statement dalam satu
+// baris ditangani dengan benar. Kekurangannya, Bun membuang import yang hanya
+// berisi tipe — padahal paket itu tetap harus ter-resolve. Jadi kata `type`
+// dilepas dulu; teks di komentar/string ikut berubah tapi tetap diabaikan parser.
+function dropTypeModifiers(src: string): string {
+	return src
+		.replace(/\bimport\s+type\b(?!\s+from\b)(?=\s*[\w$*{])/g, "import")
+		.replace(/\bexport\s+type\b(?=\s*[{*])/g, "export")
+		.replace(/([{,]\s*)type\s+(?=[\w$]+\s*(?:[,}]|as\b))/g, "$1");
+}
 
-export function importSpecifiers(src: string): string[] {
-	return importRes
-		.flatMap((re) => [...src.matchAll(re)])
-		.sort((a, b) => a.index - b.index)
-		.map((m) => m[1] ?? "");
+export function importSpecifiers(
+	src: string,
+	loader: "ts" | "tsx" = "ts",
+): string[] {
+	return new Bun.Transpiler({ loader })
+		.scanImports(dropTypeModifiers(src))
+		.map((i) => i.path);
 }
 
 if (import.meta.main) await main();
@@ -37,10 +41,11 @@ async function main() {
 	// Workspace Bun meng-hoist node_modules, jadi import yang tidak terdaftar di
 	// package.json tetap ter-resolve. Import di source juga harus diperiksa.
 	for await (const file of new Glob(
-		"packages/domain/{src,tests}/**/*.{ts,tsx,mts,cts}",
+		"packages/domain/{src,tests}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}",
 	).scan()) {
 		const src = await Bun.file(file).text();
-		for (const spec of importSpecifiers(src)) {
+		const loader = /\.[jt]sx$/.test(file) ? "tsx" : "ts";
+		for (const spec of importSpecifiers(src, loader)) {
 			if (spec.startsWith(".")) continue;
 			if (file.includes("/tests/") && spec === "bun:test") continue;
 			const name = spec.startsWith("@")
