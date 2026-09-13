@@ -58,7 +58,8 @@ konfigurasi untuk hal yang tidak pernah berubah.
 
 ## Batas kepemilikan
 
-Jangan menyentuh file milik orang lain tanpa kesepakatan tertulis di issue/PR.
+Dev A = `@rizaldiabyannata`, Dev B = `@yawpie` (juga di `.github/CODEOWNERS`). Jangan menyentuh
+file milik orang lain tanpa kesepakatan tertulis di issue/PR.
 
 | Path | Pemilik |
 |---|---|
