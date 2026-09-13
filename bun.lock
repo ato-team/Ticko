@@ -63,6 +63,12 @@
     "packages/worker": {
       "name": "@ticko/worker",
       "version": "0.0.0",
+      "dependencies": {
+        "@ticko/domain": "workspace:*",
+        "@ticko/storage": "workspace:*",
+        "drizzle-orm": "^0.45.2",
+        "zod": "^4.6.4",
+      },
     },
   },
   "packages": {
