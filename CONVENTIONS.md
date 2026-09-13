@@ -555,9 +555,9 @@ Ini pengganti langsung `match` exhaustive di Rust, dan memenuhi AC-2.5 — **tet
 
 ```ts
 // BENAR — compiler mencegah ConversationId dipakai di tempat ContactId
-declare const brand: unique symbol;
-export type ConversationId = string & { readonly [brand]: 'ConversationId' };
-export const ConversationId = z.string().uuid().brand<'ConversationId'>();
+// Brand dari Zod: satu-satunya jalan mendapat ConversationId adalah lewat parse, tanpa `as`
+export const ConversationId = z.uuid().brand<'ConversationId'>();
+export type ConversationId = z.infer<typeof ConversationId>;
 
 // SALAH — alias biasa tidak mencegah apa pun
 export type ConversationId = string;
