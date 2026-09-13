@@ -1,93 +1,74 @@
-import { afterAll, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import {
 	ControlOwner,
 	ConversationStatus,
 	controlOwnerFor,
-	Secret,
 } from "@ticko/domain";
-import { close, connect } from "../src/db";
 import { contacts, conversations } from "../src/schema";
+import { pgErrorCode, type Tx, withTestDb } from "../src/testing";
 
-const db = connect({
-	url: new Secret(
-		process.env.TICKO_TEST_DATABASE_URL ??
-			"postgres://ticko:ticko@127.0.0.1:5432/ticko",
-	),
-	maxConnections: 2,
-});
-afterAll(() => close(db));
+async function insertConversation(
+	tx: Tx,
+	values: Pick<typeof conversations.$inferInsert, "status" | "controlOwner">,
+) {
+	const [c] = await tx
+		.insert(contacts)
+		.values({ channel: "telegram", externalId: crypto.randomUUID() })
+		.returning();
+	if (!c) throw new Error("insert contact gagal");
+	const [conv] = await tx
+		.insert(conversations)
+		.values({
+			contactId: c.id,
+			channel: "telegram",
+			externalConversationId: "42",
+			...values,
+		})
+		.returning();
+	if (!conv) throw new Error("insert conversation gagal");
+	return conv;
+}
 
-class Rollback extends Error {}
-
-// Menjalankan fn dalam transaksi yang selalu di-rollback; mengembalikan
-// kode error Postgres (mis. 23514 check_violation) atau null bila sukses.
-async function pgErrorCode(
-	fn: (
-		tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-	) => Promise<unknown>,
-): Promise<string | null> {
+// Satu SAVEPOINT per percobaan supaya error tidak membatalkan transaksi luar.
+async function codeOf(tx: Tx, fn: (tx: Tx) => Promise<unknown>) {
 	try {
-		await db.transaction(async (tx) => {
-			await fn(tx);
-			throw new Rollback();
-		});
+		await tx.transaction(fn);
+		return null;
 	} catch (e) {
-		if (e instanceof Rollback) return null;
-		const cause = e instanceof Error ? e.cause : undefined;
-		if (typeof cause === "object" && cause !== null && "code" in cause) {
-			return String(cause.code);
-		}
-		throw e;
+		const code = pgErrorCode(e);
+		if (code === null) throw e;
+		return code;
 	}
-	return null;
 }
 
 test("CHECK database sepakat dengan controlOwnerFor untuk setiap pasangan", async () => {
-	for (const status of ConversationStatus.options) {
-		for (const controlOwner of ControlOwner.options) {
-			const code = await pgErrorCode(async (tx) => {
-				const [c] = await tx
-					.insert(contacts)
-					.values({ channel: "telegram", externalId: "check-test" })
-					.returning();
-				if (!c) throw new Error("insert contact gagal");
-				await tx.insert(conversations).values({
-					contactId: c.id,
-					channel: "telegram",
-					externalConversationId: "check-test",
-					status,
-					controlOwner,
-				});
-			});
-			const valid = controlOwnerFor(status) === controlOwner;
-			expect({ status, controlOwner, code }).toEqual({
-				status,
-				controlOwner,
-				code: valid ? null : "23514",
-			});
+	const results = await withTestDb(async (tx) => {
+		const out = [];
+		for (const status of ConversationStatus.options) {
+			for (const controlOwner of ControlOwner.options) {
+				const code = await codeOf(tx, (sp) =>
+					insertConversation(sp, { status, controlOwner }),
+				);
+				out.push({ status, controlOwner, rejected: code === "23514" });
+			}
 		}
+		return out;
+	});
+	expect(results).toHaveLength(18);
+	for (const r of results) {
+		expect(r).toEqual({
+			...r,
+			rejected: controlOwnerFor(r.status) !== r.controlOwner,
+		});
 	}
 });
 
 test("UPDATE ke human_active dengan control_owner bot ditolak (AC-2.2)", async () => {
-	const code = await pgErrorCode(async (tx) => {
-		const [c] = await tx
-			.insert(contacts)
-			.values({ channel: "telegram", externalId: "check-update" })
-			.returning();
-		if (!c) throw new Error("insert contact gagal");
-		const [conv] = await tx
-			.insert(conversations)
-			.values({
-				contactId: c.id,
-				channel: "telegram",
-				externalConversationId: "check-update",
-				status: "bot_active",
-				controlOwner: "bot",
-			})
-			.returning();
-		if (!conv) throw new Error("insert conversation gagal");
-		await tx.update(conversations).set({ status: "human_active" });
+	const code = await withTestDb(async (tx) => {
+		await insertConversation(tx, { status: "bot_active", controlOwner: "bot" });
+		return codeOf(tx, (sp) =>
+			sp.update(conversations).set({ status: "human_active" }),
+		);
 	});
 	expect(code).toBe("23514");
 });
