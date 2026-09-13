@@ -111,7 +111,9 @@ export const messages = pgTable(
 		content: text("content"),
 		attachments: jsonb("attachments").notNull().default([]),
 		sentAt: ts("sent_at").notNull(),
-		createdAt: createdAt(),
+		// clock_timestamp(), bukan now(): beberapa pesan dalam satu transaksi
+		// tetap punya urutan yang pasti.
+		createdAt: ts("created_at").notNull().default(sql`clock_timestamp()`),
 	},
 	(t) => [
 		index("messages_conversation_id_created_at_idx").on(

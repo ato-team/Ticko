@@ -54,6 +54,7 @@
         "ioredis": "^6.0.0",
         "pino": "^10.3.1",
         "postgres": "^3.4.9",
+        "zod": "^4.6.4",
       },
       "devDependencies": {
         "drizzle-kit": "^0.31.10",
