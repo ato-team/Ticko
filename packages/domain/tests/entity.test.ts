@@ -11,7 +11,7 @@ import {
 const UUID = "0b8e7a52-4c1f-4d2e-9a6b-3f5c8d7e1a20";
 
 test("parser ID menerima UUID dan menolak selain itu", () => {
-	expect(ConversationId.parse(UUID)).toBe(UUID);
+	expect<string>(ConversationId.parse(UUID)).toBe(UUID);
 	expect(ConversationId.safeParse("12345").success).toBe(false);
 	expect(ContactId.safeParse(42).success).toBe(false);
 });
