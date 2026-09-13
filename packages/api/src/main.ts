@@ -1,0 +1,47 @@
+import { ConfigError, loadAppConfig } from "@ticko/domain";
+import { close, connect, ping } from "@ticko/storage";
+import { createLogger } from "@ticko/storage/log";
+import { connectRedis, pingRedis } from "@ticko/storage/redis";
+import { createApp } from "./app";
+
+// Fail fast: config tidak valid mematikan proses sebelum request pertama.
+const config = await loadAppConfig().catch((e: unknown) => {
+	if (e instanceof ConfigError) {
+		console.error(e.message);
+		process.exit(1);
+	}
+	throw e;
+});
+
+const log = createLogger(config.logging.level);
+// Secret me-redact dirinya sendiri, jadi ringkasan aman di-log utuh (AC-9.4).
+log.info({ config }, "api start");
+
+const db = connect(config.database);
+const redis = connectRedis(config.redis.url);
+
+const app = createApp({
+	log,
+	checkDatabase: async () => {
+		const r = await ping(db);
+		if (!r.ok) log.error({ error: r.error }, "database tidak sehat");
+		return r;
+	},
+	checkRedis: async () => {
+		const r = await pingRedis(redis);
+		if (!r.ok) log.error({ error: r.error }, "redis tidak sehat");
+		return r;
+	},
+});
+
+const server = Bun.serve({ port: config.server.port, fetch: app.fetch });
+log.info({ port: server.port }, "api mendengarkan");
+
+process.once("SIGTERM", async () => {
+	log.info("SIGTERM diterima, menutup koneksi");
+	// Selesaikan request yang sedang berjalan, tolak yang baru.
+	await server.stop();
+	await Promise.allSettled([close(db), redis.quit()]);
+	log.info("api berhenti");
+	process.exit(0);
+});

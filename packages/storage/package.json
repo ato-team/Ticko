@@ -5,11 +5,15 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
+		"./log": "./src/log.ts",
+		"./redis": "./src/redis.ts",
 		"./testing": "./src/testing.ts"
 	},
 	"dependencies": {
 		"@ticko/domain": "workspace:*",
 		"drizzle-orm": "^0.45.2",
+		"ioredis": "^6.0.0",
+		"pino": "^10.3.1",
 		"postgres": "^3.4.9"
 	},
 	"devDependencies": {
