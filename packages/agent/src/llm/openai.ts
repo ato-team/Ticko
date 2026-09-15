@@ -39,6 +39,11 @@ export class OpenAiClient implements LlmClient {
 			 * meneruskan ke banyak penyedia paling luas mendukung `max_tokens`.
 			 */
 			maxTokensParam: "max_completion_tokens" | "max_tokens";
+			/**
+			 * Beberapa penyedia di balik 9Router hanya mengisi teks saat streaming
+			 * (`stream: false` → content kosong). Respons SSE dirangkai jadi satu.
+			 */
+			stream: boolean;
 		},
 	) {}
 
@@ -49,12 +54,13 @@ export class OpenAiClient implements LlmClient {
 			{ authorization: `Bearer ${this.deps.apiKey.reveal()}` },
 			{
 				model: this.deps.model,
-				stream: false,
+				stream: this.deps.stream,
 				[this.deps.maxTokensParam]: req.maxOutputTokens,
 				messages: [{ role: "system", content: req.system }, ...req.messages],
 			},
 			Response,
 			(json) => ErrorBody.safeParse(json).data?.error.message,
+			decodeChatCompletion,
 		);
 		const message = data.choices[0]?.message;
 		if (message?.refusal) throw new LlmFailure({ kind: "refused" });
@@ -67,3 +73,61 @@ export class OpenAiClient implements LlmClient {
 		});
 	}
 }
+
+/**
+ * JSON biasa, atau SSE (`data: {chunk}` per baris) yang dirangkai menjadi
+ * bentuk respons non-streaming. Router bisa membalas SSE walau tidak diminta.
+ */
+export function decodeChatCompletion(body: string): unknown {
+	if (!/^\s*(data:|:)/.test(body)) {
+		try {
+			return JSON.parse(body);
+		} catch {
+			return null;
+		}
+	}
+	let content = "";
+	let refusal = "";
+	let model: unknown;
+	let usage: unknown;
+	for (const line of body.split("\n")) {
+		if (!line.startsWith("data:")) continue; // komentar SSE / baris kosong
+		const payload = line.slice(5).trim();
+		if (payload === "" || payload === "[DONE]") continue;
+		let chunk: unknown;
+		try {
+			chunk = JSON.parse(payload);
+		} catch {
+			continue;
+		}
+		const c = Chunk.safeParse(chunk);
+		if (!c.success) continue;
+		model ??= c.data.model;
+		usage = c.data.usage ?? usage;
+		const delta = c.data.choices?.[0]?.delta;
+		content += delta?.content ?? "";
+		refusal += delta?.refusal ?? "";
+	}
+	return {
+		model,
+		usage,
+		choices: [{ message: { content, refusal: refusal || null } }],
+	};
+}
+
+const Chunk = z.object({
+	model: z.string().optional(),
+	usage: z.unknown().optional(),
+	choices: z
+		.array(
+			z.object({
+				delta: z
+					.object({
+						content: z.string().nullish(),
+						refusal: z.string().nullish(),
+					})
+					.optional(),
+			}),
+		)
+		.optional(),
+});

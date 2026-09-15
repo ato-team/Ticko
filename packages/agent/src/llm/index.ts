@@ -26,10 +26,15 @@ export function createLlmClient(
 			return new OpenAiClient({
 				...deps,
 				maxTokensParam: "max_completion_tokens",
+				stream: false,
 			});
 		case "openrouter":
 		case "9router":
-			return new OpenAiClient({ ...deps, maxTokensParam: "max_tokens" });
+			return new OpenAiClient({
+				...deps,
+				maxTokensParam: "max_tokens",
+				stream: true,
+			});
 		default:
 			return assertNever(cfg.provider);
 	}
