@@ -22,8 +22,10 @@
       "name": "@ticko/api",
       "version": "0.0.0",
       "dependencies": {
+        "@ticko/channels": "workspace:*",
         "@ticko/domain": "workspace:*",
         "@ticko/storage": "workspace:*",
+        "@ticko/worker": "workspace:*",
         "hono": "^4.13.7",
       },
     },
@@ -65,6 +67,7 @@
       "name": "@ticko/worker",
       "version": "0.0.0",
       "dependencies": {
+        "@ticko/channels": "workspace:*",
         "@ticko/domain": "workspace:*",
         "@ticko/storage": "workspace:*",
         "drizzle-orm": "^0.45.2",

@@ -1,5 +1,6 @@
 import type { Logger } from "@ticko/storage/log";
 import { Hono } from "hono";
+import { type WebhookDeps, webhookRoutes } from "./webhook";
 
 export type Env = { Variables: { log: Logger; traceId: string } };
 
@@ -7,6 +8,8 @@ export interface AppDeps {
 	log: Logger;
 	checkDatabase: () => Promise<{ ok: boolean }>;
 	checkRedis: () => Promise<{ ok: boolean }>;
+	/** null bila channel Telegram tidak diaktifkan. */
+	webhooks: WebhookDeps | null;
 }
 
 export function createApp(deps: AppDeps): Hono<Env> {
@@ -47,6 +50,17 @@ export function createApp(deps: AppDeps): Hono<Env> {
 			healthy ? 200 : 503,
 		);
 	});
+
+	// Detail error internal tidak pernah dikirim ke klien (CONVENTIONS §3).
+	app.onError((err, c) => {
+		(c.get("log") ?? deps.log).error({ err }, "request gagal");
+		return c.json(
+			{ error: { code: "INTERNAL", message: "Terjadi kesalahan" } },
+			500,
+		);
+	});
+
+	if (deps.webhooks) app.route("/webhook", webhookRoutes(deps.webhooks));
 
 	return app;
 }
