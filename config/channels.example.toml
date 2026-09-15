@@ -1,0 +1,4 @@
+# Kredensial (TICKO_TELEGRAM_BOT_TOKEN, TICKO_TELEGRAM_WEBHOOK_SECRET) hanya dari environment.
+
+[telegram]
+enabled = true

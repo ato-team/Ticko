@@ -1,0 +1,14 @@
+# Kredensial (TICKO_LLM_API_KEY) hanya dari environment.
+
+provider = "anthropic" # anthropic | openai
+model = "claude-haiku-4-5"
+# openai: "https://api.openai.com/v1", atau endpoint lain yang kompatibel
+base_url = "https://api.anthropic.com"
+max_output_tokens = 1024
+context_max_tokens = 8000
+recent_messages = 20
+
+# Tarif USD per sejuta token dari halaman harga penyedia. Selama masih 0,
+# cost_estimate di agent_runs juga 0 — isi sebelum mengukur biaya.
+input_usd_per_mtok = 0
+output_usd_per_mtok = 0
