@@ -11,6 +11,7 @@
 		"@ticko/domain": "workspace:*",
 		"@ticko/storage": "workspace:*",
 		"@ticko/worker": "workspace:*",
-		"hono": "^4.13.7"
+		"hono": "^4.13.7",
+		"zod": "^4.6.4"
 	}
 }

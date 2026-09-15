@@ -20,7 +20,8 @@
 		"db:migrate": "bun run --cwd packages/storage migrate",
 		"db:check": "bun run --cwd packages/storage check",
 		"cli": "bun run packages/worker/src/cli.ts",
-		"webhook:setup": "bun run packages/worker/src/setup-webhook.ts"
+		"webhook:setup": "bun run packages/worker/src/setup-webhook.ts",
+		"user:create-admin": "bun run packages/api/src/create-admin.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.13",

@@ -30,6 +30,7 @@ async function configDir(files: Record<string, string>): Promise<string> {
 const env = {
 	TICKO_DATABASE_URL: "postgres://u:rahasia@db/ticko",
 	TICKO_REDIS_URL: "redis://127.0.0.1:6379",
+	TICKO_SESSION_SECRET: "session-rahasia",
 	TICKO_TELEGRAM_BOT_TOKEN: "123:abc",
 	TICKO_TELEGRAM_WEBHOOK_SECRET: "s3cret",
 	TICKO_LLM_API_KEY: "sk-rahasia",

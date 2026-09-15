@@ -2,8 +2,20 @@ import { expect, test } from "bun:test";
 import { type Channel, type InboundMessage, Secret } from "@ticko/domain";
 import { createLogger } from "@ticko/storage/log";
 import { createApp } from "../src/app";
+import type { AuthDeps } from "../src/auth";
 
 type DeadLetter = { channel: Channel; payload: string; error: string };
+
+// Test di file ini tidak pernah memanggil /auth atau /me.
+const fakeAuth: AuthDeps = {
+	sessionSecret: new Secret("test-secret"),
+	findUserByEmail: async () => null,
+	createSession: async () => {
+		throw new Error("tidak dipakai di test ini");
+	},
+	findSessionUser: async () => null,
+	deleteSession: async () => {},
+};
 
 function app(
 	receive: (m: InboundMessage) => Promise<unknown>,
@@ -18,6 +30,7 @@ function app(
 			receive,
 			deadLetter,
 		},
+		auth: fakeAuth,
 	});
 }
 

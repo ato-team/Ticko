@@ -1,6 +1,19 @@
 import { expect, test } from "bun:test";
+import { Secret } from "@ticko/domain";
 import { createLogger } from "@ticko/storage/log";
 import { createApp } from "../src/app";
+import type { AuthDeps } from "../src/auth";
+
+// Test di file ini tidak pernah memanggil /auth atau /me.
+const fakeAuth: AuthDeps = {
+	sessionSecret: new Secret("test-secret"),
+	findUserByEmail: async () => null,
+	createSession: async () => {
+		throw new Error("tidak dipakai di test ini");
+	},
+	findSessionUser: async () => null,
+	deleteSession: async () => {},
+};
 
 function capture() {
 	const lines: Record<string, unknown>[] = [];
@@ -22,6 +35,7 @@ test("GET /health 200 dengan status database dan redis", async () => {
 		checkDatabase: up,
 		checkRedis: up,
 		webhooks: null,
+		auth: fakeAuth,
 	});
 	const res = await app.request("/health");
 	expect(res.status).toBe(200);
@@ -39,6 +53,7 @@ test("GET /health 503 saat salah satu dependensi mati", async () => {
 		checkDatabase: down,
 		checkRedis: up,
 		webhooks: null,
+		auth: fakeAuth,
 	});
 	const res = await app.request("/health");
 	expect(res.status).toBe(503);
@@ -52,6 +67,7 @@ test("log request berupa JSON dengan trace_id", async () => {
 		checkDatabase: up,
 		checkRedis: up,
 		webhooks: null,
+		auth: fakeAuth,
 	});
 	await app.request("/health");
 	await app.request("/health");

@@ -3,6 +3,7 @@ import {
 	ControlOwner,
 	ConversationStatus,
 	SenderType,
+	UserRole,
 } from "@ticko/domain";
 import { sql } from "drizzle-orm";
 import {
@@ -27,7 +28,7 @@ export const conversationStatusEnum = pgEnum(
 	ConversationStatus.enum,
 );
 export const controlOwnerEnum = pgEnum("control_owner", ControlOwner.enum);
-export const userRoleEnum = pgEnum("user_role", ["admin", "agent"]);
+export const userRoleEnum = pgEnum("user_role", UserRole.enum);
 export const agentRunStatusEnum = pgEnum("agent_run_status", [
 	"succeeded",
 	"failed",
@@ -51,6 +52,18 @@ export const users = pgTable("users", {
 	passwordHash: text("password_hash").notNull(),
 	displayName: text("display_name").notNull(),
 	role: userRoleEnum("role").notNull(),
+	createdAt: createdAt(),
+});
+
+// Session login internal (B-1.7). `id` adalah sha256(token) hex — token
+// mentah cuma ada di cookie klien, kebocoran baris ini tidak cukup untuk
+// login sebagai user.
+export const sessions = pgTable("sessions", {
+	id: text("id").primaryKey(),
+	userId: uuid("user_id")
+		.notNull()
+		.references(() => users.id),
+	expiresAt: ts("expires_at").notNull(),
 	createdAt: createdAt(),
 });
 

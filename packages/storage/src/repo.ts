@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import {
 	Channel,
 	ContactId,
@@ -9,8 +10,10 @@ import {
 	type InboundMessage,
 	MessageId,
 	SenderType,
+	UserId,
+	UserRole,
 } from "@ticko/domain";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "./db";
 import {
@@ -19,6 +22,8 @@ import {
 	conversations,
 	deadLetters,
 	messages,
+	sessions,
+	users,
 } from "./schema";
 
 // Baris database diparse ke tipe ber-brand lewat Zod, bukan di-`as`.
@@ -242,4 +247,84 @@ export async function insertDeadLetter(
 	input: { channel: Channel; payload: string; error: string },
 ): Promise<void> {
 	await ex.insert(deadLetters).values(input);
+}
+
+// --- User & Session (B-1.7) ---------------------------------------------------
+
+export const User = z.object({
+	id: UserId,
+	email: z.string(),
+	displayName: z.string(),
+	role: UserRole,
+});
+export type User = z.infer<typeof User>;
+
+export async function findUserByEmail(
+	ex: Executor,
+	email: string,
+): Promise<(User & { passwordHash: string }) | null> {
+	const [row] = await ex.select().from(users).where(eq(users.email, email));
+	if (!row) return null;
+	return {
+		...User.parse(row),
+		passwordHash: z.string().parse(row.passwordHash),
+	};
+}
+
+export async function createUser(
+	ex: Executor,
+	input: {
+		email: string;
+		passwordHash: string;
+		displayName: string;
+		role: UserRole;
+	},
+): Promise<User> {
+	const [row] = await ex.insert(users).values(input).returning();
+	return User.parse(row);
+}
+
+function hashToken(token: string): string {
+	return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * Token mentah dikembalikan sekali di sini, untuk cookie klien. Yang tersimpan
+ * hanya hash-nya — baris ini bocor tidak cukup untuk login sebagai user.
+ */
+export async function createSession(
+	ex: Executor,
+	input: { userId: UserId; ttlMs: number },
+): Promise<{ token: string; expiresAt: Date }> {
+	const token = randomBytes(32).toString("hex");
+	const expiresAt = new Date(Date.now() + input.ttlMs);
+	await ex
+		.insert(sessions)
+		.values({ id: hashToken(token), userId: input.userId, expiresAt });
+	return { token, expiresAt };
+}
+
+/** null bila token tidak ada atau sudah kedaluwarsa. */
+export async function findSessionUser(
+	ex: Executor,
+	token: string,
+): Promise<User | null> {
+	const [row] = await ex
+		.select({ user: users })
+		.from(sessions)
+		.innerJoin(users, eq(sessions.userId, users.id))
+		.where(
+			and(
+				eq(sessions.id, hashToken(token)),
+				gt(sessions.expiresAt, sql`now()`),
+			),
+		);
+	return row ? User.parse(row.user) : null;
+}
+
+export async function deleteSession(
+	ex: Executor,
+	token: string,
+): Promise<void> {
+	await ex.delete(sessions).where(eq(sessions.id, hashToken(token)));
 }
