@@ -4,8 +4,9 @@ import {
 	ConversationStatus,
 	controlOwnerFor,
 } from "@ticko/domain";
+import type { Tx } from "../src/db";
 import { contacts, conversations } from "../src/schema";
-import { pgErrorCode, type Tx, withTestDb } from "../src/testing";
+import { pgErrorCode, withTestDb } from "../src/testing";
 
 async function insertConversation(
 	tx: Tx,

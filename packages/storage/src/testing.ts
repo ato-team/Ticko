@@ -2,7 +2,7 @@ import { Secret } from "@ticko/domain";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
-import { close, connect, type Db } from "./db";
+import { close, connect, type Db, type Tx } from "./db";
 
 // Helper test integrasi (A-0.5). Hanya untuk test — diekspor lewat
 // `@ticko/storage/testing` supaya pemakaiannya di kode produksi terlihat.
@@ -21,8 +21,6 @@ const baseUrl =
 	"postgres://ticko:ticko@127.0.0.1:5432/ticko";
 const TEMPLATE = "ticko_test_template";
 const migrationsFolder = `${import.meta.dir}/../migrations`;
-
-export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 function urlFor(database: string): string {
 	const u = new URL(baseUrl);

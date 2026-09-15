@@ -14,6 +14,9 @@ export function connect(cfg: { url: Secret; maxConnections: number }) {
 }
 
 export type Db = ReturnType<typeof connect>;
+export type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+/** Repository menerima executor; batas transaksi ada di pemanggil (CONVENTIONS §4). */
+export type Executor = Db | Tx;
 
 export type PingResult =
 	| { ok: true }
