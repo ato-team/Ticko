@@ -19,7 +19,8 @@
 		"worker": "bun run packages/worker/src/main.ts",
 		"db:migrate": "bun run --cwd packages/storage migrate",
 		"db:check": "bun run --cwd packages/storage check",
-		"cli": "bun run packages/worker/src/cli.ts"
+		"cli": "bun run packages/worker/src/cli.ts",
+		"webhook:setup": "bun run packages/worker/src/setup-webhook.ts"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.13",
