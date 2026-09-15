@@ -206,3 +206,19 @@ export const agentRuns = pgTable(
 		),
 	],
 );
+
+// Payload webhook yang gagal diparse Zod (AC-1.7, B-1.3). Webhook tetap
+// membalas 200 supaya Telegram/Meta tidak retry terus lalu menonaktifkan
+// endpoint-nya; baris di sini yang dipakai untuk pemeriksaan manual.
+export const deadLetters = pgTable(
+	"dead_letter",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		channel: channelEnum("channel").notNull(),
+		// Body mentah request, bukan hasil parse — bentuknya bisa apa saja.
+		payload: text("payload").notNull(),
+		error: text("error").notNull(),
+		createdAt: createdAt(),
+	},
+	(t) => [index("dead_letter_created_at_idx").on(t.createdAt)],
+);

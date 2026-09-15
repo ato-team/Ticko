@@ -13,7 +13,13 @@ import {
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "./db";
-import { agentRuns, contacts, conversations, messages } from "./schema";
+import {
+	agentRuns,
+	contacts,
+	conversations,
+	deadLetters,
+	messages,
+} from "./schema";
 
 // Baris database diparse ke tipe ber-brand lewat Zod, bukan di-`as`.
 const iso = z.date().transform((d) => d.toISOString());
@@ -226,4 +232,14 @@ export async function insertAgentRun(
 		.values(run)
 		.returning({ id: agentRuns.id });
 	return z.string().parse(row?.id);
+}
+
+// --- Dead letter ---------------------------------------------------------------
+
+/** Payload webhook yang gagal diparse (AC-1.7). Baris mentah untuk pemeriksaan manual. */
+export async function insertDeadLetter(
+	ex: Executor,
+	input: { channel: Channel; payload: string; error: string },
+): Promise<void> {
+	await ex.insert(deadLetters).values(input);
 }

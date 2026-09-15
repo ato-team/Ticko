@@ -1,5 +1,5 @@
 import { ConfigError, loadAppConfig, loadChannelsConfig } from "@ticko/domain";
-import { close, connect, ping } from "@ticko/storage";
+import { close, connect, insertDeadLetter, ping } from "@ticko/storage";
 import { createLogger } from "@ticko/storage/log";
 import { connectRedis, pingRedis } from "@ticko/storage/redis";
 import { receiveInbound } from "@ticko/worker";
@@ -40,6 +40,7 @@ const app = createApp({
 		? {
 				telegramSecret: channels.telegram.webhookSecret,
 				receive: (msg, traceId) => receiveInbound(db, msg, traceId),
+				deadLetter: (input) => insertDeadLetter(db, input),
 			}
 		: null,
 });

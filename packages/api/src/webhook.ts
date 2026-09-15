@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { parseUpdate } from "@ticko/channels";
-import type { InboundMessage, Secret } from "@ticko/domain";
+import type { Channel, InboundMessage, Secret } from "@ticko/domain";
 import { Hono } from "hono";
 import type { Env } from "./app";
 
@@ -8,6 +8,12 @@ export interface WebhookDeps {
 	telegramSecret: Secret;
 	/** Menyimpan pesan dan menjadwalkan job dalam satu transaksi. */
 	receive: (msg: InboundMessage, traceId: string) => Promise<unknown>;
+	/** Payload gagal diparse (AC-1.7). Kegagalan di sini boleh melempar 500 — Telegram retry, tidak ada data hilang. */
+	deadLetter: (input: {
+		channel: Channel;
+		payload: string;
+		error: string;
+	}) => Promise<void>;
 }
 
 function sameSecret(given: string, expected: Secret): boolean {
@@ -25,12 +31,28 @@ export function webhookRoutes(deps: WebhookDeps): Hono<Env> {
 			return c.notFound();
 		}
 		const log = c.get("log");
-		const body: unknown = await c.req.json().catch(() => null);
+		// Body mentah dibaca dulu (bukan c.req.json()) supaya body yang bukan
+		// JSON valid pun tetap tersimpan utuh di dead_letter.
+		const raw = await c.req.text();
+		let body: unknown;
+		try {
+			body = raw ? JSON.parse(raw) : null;
+		} catch (e) {
+			const error = e instanceof Error ? e.message : String(e);
+			log.warn({ error }, "payload telegram bukan JSON valid");
+			await deps.deadLetter({ channel: "telegram", payload: raw, error });
+			return c.body(null, 200);
+		}
 		const parsed = parseUpdate(body);
 		if (!parsed.ok) {
 			// Tetap 200: balasan 5xx membuat Telegram retry payload yang sama
-			// terus-menerus. Tabel dead_letter menyusul di B-1.3.
+			// terus-menerus.
 			log.warn({ zod_error: parsed.error }, "payload telegram gagal diparse");
+			await deps.deadLetter({
+				channel: "telegram",
+				payload: raw,
+				error: parsed.error,
+			});
 			return c.body(null, 200);
 		}
 		if (!parsed.message) return c.body(null, 200);

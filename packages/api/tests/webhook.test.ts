@@ -1,14 +1,23 @@
 import { expect, test } from "bun:test";
-import { type InboundMessage, Secret } from "@ticko/domain";
+import { type Channel, type InboundMessage, Secret } from "@ticko/domain";
 import { createLogger } from "@ticko/storage/log";
 import { createApp } from "../src/app";
 
-function app(receive: (m: InboundMessage) => Promise<unknown>) {
+type DeadLetter = { channel: Channel; payload: string; error: string };
+
+function app(
+	receive: (m: InboundMessage) => Promise<unknown>,
+	deadLetter: (d: DeadLetter) => Promise<void> = async () => {},
+) {
 	return createApp({
 		log: createLogger("error"),
 		checkDatabase: async () => ({ ok: true }),
 		checkRedis: async () => ({ ok: true }),
-		webhooks: { telegramSecret: new Secret("rahasia-webhook"), receive },
+		webhooks: {
+			telegramSecret: new Secret("rahasia-webhook"),
+			receive,
+			deadLetter,
+		},
 	});
 }
 
@@ -54,14 +63,45 @@ test("pesan valid → receive dipanggil lalu 200", async () => {
 	]);
 });
 
-test("payload rusak → tetap 200, tidak diproses", async () => {
+test("payload rusak → tetap 200, tidak diproses, masuk dead_letter (AC-1.7)", async () => {
 	const got: InboundMessage[] = [];
-	const a = app(async (m) => got.push(m));
+	const deadLetters: DeadLetter[] = [];
+	const a = app(
+		async (m) => got.push(m),
+		async (d) => {
+			deadLetters.push(d);
+		},
+	);
 	expect((await post(a, "rahasia-webhook", "{bukan json")).status).toBe(200);
 	expect((await post(a, "rahasia-webhook", { update_id: "x" })).status).toBe(
 		200,
 	);
 	expect(got).toHaveLength(0);
+	expect(deadLetters).toHaveLength(2);
+	expect(deadLetters[0]).toEqual({
+		channel: "telegram",
+		payload: "{bukan json",
+		error: expect.any(String),
+	});
+	expect(deadLetters[1]).toEqual({
+		channel: "telegram",
+		payload: JSON.stringify({ update_id: "x" }),
+		error: expect.any(String),
+	});
+});
+
+test("dead_letter gagal disimpan → 500 supaya Telegram mengirim ulang", async () => {
+	const res = await post(
+		app(
+			async () => {},
+			async () => {
+				throw new Error("dead_letter mati");
+			},
+		),
+		"rahasia-webhook",
+		"{bukan json",
+	);
+	expect(res.status).toBe(500);
 });
 
 test("database gagal → 500 supaya Telegram mengirim ulang", async () => {

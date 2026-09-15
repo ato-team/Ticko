@@ -5,13 +5,14 @@ import {
 	findActiveOrCreate,
 	findOrCreateContact,
 	getConversation,
+	insertDeadLetter,
 	insertInbound,
 	insertOutbound,
 	listRecentMessages,
 	recordInboundAt,
 	updateStatus,
 } from "../src/repo";
-import { contacts, conversations, messages } from "../src/schema";
+import { contacts, conversations, deadLetters, messages } from "../src/schema";
 import { createTestDb, withTestDb } from "../src/testing";
 
 const inbound = (externalMessageId: string, text = "halo"): InboundMessage => ({
@@ -219,5 +220,22 @@ test("listRecentMessages: N terakhir, urut lama → baru, termasuk balasan bot",
 			["contact", "m5"],
 			["bot", "balasan"],
 		]);
+	});
+});
+
+test("insertDeadLetter menyimpan payload mentah dan pesan error utuh (AC-1.7)", async () => {
+	await withTestDb(async (tx) => {
+		await insertDeadLetter(tx, {
+			channel: "telegram",
+			payload: "{bukan json",
+			error: "Unexpected end of JSON input",
+		});
+		const rows = await tx.select().from(deadLetters);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			channel: "telegram",
+			payload: "{bukan json",
+			error: "Unexpected end of JSON input",
+		});
 	});
 });
