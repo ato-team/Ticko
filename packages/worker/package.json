@@ -7,6 +7,7 @@
 		".": "./src/index.ts"
 	},
 	"dependencies": {
+		"@ticko/agent": "workspace:*",
 		"@ticko/channels": "workspace:*",
 		"@ticko/domain": "workspace:*",
 		"@ticko/storage": "workspace:*",

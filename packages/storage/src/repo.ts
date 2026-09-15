@@ -13,7 +13,7 @@ import {
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor } from "./db";
-import { contacts, conversations, messages } from "./schema";
+import { agentRuns, contacts, conversations, messages } from "./schema";
 
 // Baris database diparse ke tipe ber-brand lewat Zod, bukan di-`as`.
 const iso = z.date().transform((d) => d.toISOString());
@@ -213,4 +213,17 @@ export async function listRecentMessages(
 		.orderBy(desc(messages.createdAt), desc(messages.id))
 		.limit(limit);
 	return rows.reverse().map((r) => StoredMessage.parse(r));
+}
+
+// --- Agent run -----------------------------------------------------------------
+
+export async function insertAgentRun(
+	ex: Executor,
+	run: Omit<typeof agentRuns.$inferInsert, "id" | "createdAt">,
+): Promise<string> {
+	const [row] = await ex
+		.insert(agentRuns)
+		.values(run)
+		.returning({ id: agentRuns.id });
+	return z.string().parse(row?.id);
 }
