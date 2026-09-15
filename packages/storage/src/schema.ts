@@ -27,6 +27,13 @@ export const conversationStatusEnum = pgEnum(
 );
 export const controlOwnerEnum = pgEnum("control_owner", ControlOwner.enum);
 export const userRoleEnum = pgEnum("user_role", ["admin", "agent"]);
+export const jobStatusEnum = pgEnum("job_status", [
+	"pending",
+	"running",
+	"done",
+	"failed",
+	"cancelled",
+]);
 
 // Semua waktu TIMESTAMPTZ, disimpan UTC.
 const ts = (name: string) => timestamp(name, { withTimezone: true });
@@ -120,5 +127,34 @@ export const messages = pgTable(
 			t.conversationId,
 			t.createdAt,
 		),
+	],
+);
+
+// Job queue & timer (A-1.3). Diklaim lewat FOR UPDATE SKIP LOCKED di
+// packages/worker/src/queue.ts. Tidak ada scheduler lain.
+export const jobs = pgTable(
+	"jobs",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		jobType: text("job_type").notNull(),
+		conversationId: uuid("conversation_id").references(() => conversations.id),
+		payload: jsonb("payload").notNull(),
+		status: jobStatusEnum("status").notNull().default("pending"),
+		// Jumlah kegagalan; gagal ke-(max_attempts + 1) → failed.
+		attempts: integer("attempts").notNull().default(0),
+		maxAttempts: integer("max_attempts").notNull().default(3),
+		runAfter: ts("run_after").notNull().defaultNow(),
+		lockedAt: ts("locked_at"),
+		lockedBy: text("locked_by"),
+		dedupeKey: text("dedupe_key").unique(),
+		lastError: text("last_error"),
+		createdAt: createdAt(),
+		updatedAt: ts("updated_at").notNull().defaultNow(),
+	},
+	(t) => [
+		index("jobs_pending_run_after_idx")
+			.on(t.runAfter)
+			.where(sql`${t.status} = 'pending'`),
+		index("jobs_conversation_id_status_idx").on(t.conversationId, t.status),
 	],
 );
