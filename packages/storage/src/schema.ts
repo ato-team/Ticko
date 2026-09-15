@@ -3,6 +3,7 @@ import {
 	ControlOwner,
 	ConversationStatus,
 	SenderType,
+	UserRole,
 } from "@ticko/domain";
 import { sql } from "drizzle-orm";
 import {
@@ -27,7 +28,7 @@ export const conversationStatusEnum = pgEnum(
 	ConversationStatus.enum,
 );
 export const controlOwnerEnum = pgEnum("control_owner", ControlOwner.enum);
-export const userRoleEnum = pgEnum("user_role", ["admin", "agent"]);
+export const userRoleEnum = pgEnum("user_role", UserRole.enum);
 export const agentRunStatusEnum = pgEnum("agent_run_status", [
 	"succeeded",
 	"failed",
@@ -51,6 +52,18 @@ export const users = pgTable("users", {
 	passwordHash: text("password_hash").notNull(),
 	displayName: text("display_name").notNull(),
 	role: userRoleEnum("role").notNull(),
+	createdAt: createdAt(),
+});
+
+// Session login internal (B-1.7). `id` adalah sha256(token) hex — token
+// mentah cuma ada di cookie klien, kebocoran baris ini tidak cukup untuk
+// login sebagai user.
+export const sessions = pgTable("sessions", {
+	id: text("id").primaryKey(),
+	userId: uuid("user_id")
+		.notNull()
+		.references(() => users.id),
+	expiresAt: ts("expires_at").notNull(),
 	createdAt: createdAt(),
 });
 
@@ -205,4 +218,20 @@ export const agentRuns = pgTable(
 			t.createdAt,
 		),
 	],
+);
+
+// Payload webhook yang gagal diparse Zod (AC-1.7, B-1.3). Webhook tetap
+// membalas 200 supaya Telegram/Meta tidak retry terus lalu menonaktifkan
+// endpoint-nya; baris di sini yang dipakai untuk pemeriksaan manual.
+export const deadLetters = pgTable(
+	"dead_letter",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		channel: channelEnum("channel").notNull(),
+		// Body mentah request, bukan hasil parse — bentuknya bisa apa saja.
+		payload: text("payload").notNull(),
+		error: text("error").notNull(),
+		createdAt: createdAt(),
+	},
+	(t) => [index("dead_letter_created_at_idx").on(t.createdAt)],
 );

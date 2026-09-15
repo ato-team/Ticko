@@ -87,6 +87,7 @@ export async function loadAppConfig(
 			maxConnections: f.database.max_connections,
 		},
 		redis: { url: secret(env, "TICKO_REDIS_URL") },
+		session: { secret: secret(env, "TICKO_SESSION_SECRET") },
 		logging: { level: f.logging.level },
 	};
 }

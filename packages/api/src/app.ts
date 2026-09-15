@@ -1,8 +1,14 @@
+import type { User } from "@ticko/storage";
 import type { Logger } from "@ticko/storage/log";
 import { Hono } from "hono";
+import { type AuthDeps, authRoutes, requireAuth } from "./auth";
 import { type WebhookDeps, webhookRoutes } from "./webhook";
 
-export type Env = { Variables: { log: Logger; traceId: string } };
+// `user` hanya diisi oleh requireAuth; route di belakangnya boleh menganggap
+// c.get("user") sudah ada (idiom Hono), route lain tidak pernah membacanya.
+export type Env = {
+	Variables: { log: Logger; traceId: string; user: User };
+};
 
 export interface AppDeps {
 	log: Logger;
@@ -10,6 +16,7 @@ export interface AppDeps {
 	checkRedis: () => Promise<{ ok: boolean }>;
 	/** null bila channel Telegram tidak diaktifkan. */
 	webhooks: WebhookDeps | null;
+	auth: AuthDeps;
 }
 
 export function createApp(deps: AppDeps): Hono<Env> {
@@ -61,6 +68,8 @@ export function createApp(deps: AppDeps): Hono<Env> {
 	});
 
 	if (deps.webhooks) app.route("/webhook", webhookRoutes(deps.webhooks));
+	app.route("/auth", authRoutes(deps.auth));
+	app.get("/me", requireAuth(deps.auth), (c) => c.json(c.get("user")));
 
 	return app;
 }

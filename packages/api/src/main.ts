@@ -1,9 +1,19 @@
 import { ConfigError, loadAppConfig, loadChannelsConfig } from "@ticko/domain";
-import { close, connect, ping } from "@ticko/storage";
+import {
+	close,
+	connect,
+	createSession,
+	deleteSession,
+	findSessionUser,
+	findUserByEmail,
+	insertDeadLetter,
+	ping,
+} from "@ticko/storage";
 import { createLogger } from "@ticko/storage/log";
 import { connectRedis, pingRedis } from "@ticko/storage/redis";
 import { receiveInbound } from "@ticko/worker";
 import { createApp } from "./app";
+import { SESSION_TTL_MS } from "./auth";
 
 // Fail fast: config tidak valid mematikan proses sebelum request pertama.
 const [config, channels] = await Promise.all([
@@ -40,8 +50,17 @@ const app = createApp({
 		? {
 				telegramSecret: channels.telegram.webhookSecret,
 				receive: (msg, traceId) => receiveInbound(db, msg, traceId),
+				deadLetter: (input) => insertDeadLetter(db, input),
 			}
 		: null,
+	auth: {
+		sessionSecret: config.session.secret,
+		findUserByEmail: (email) => findUserByEmail(db, email),
+		createSession: (userId) =>
+			createSession(db, { userId, ttlMs: SESSION_TTL_MS }),
+		findSessionUser: (token) => findSessionUser(db, token),
+		deleteSession: (token) => deleteSession(db, token),
+	},
 });
 
 const server = Bun.serve({ port: config.server.port, fetch: app.fetch });

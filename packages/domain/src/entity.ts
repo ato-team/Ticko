@@ -32,3 +32,6 @@ export type ConversationStatus = z.infer<typeof ConversationStatus>;
 
 export const ControlOwner = z.enum(["bot", "human", "none"]);
 export type ControlOwner = z.infer<typeof ControlOwner>;
+
+export const UserRole = z.enum(["admin", "agent"]);
+export type UserRole = z.infer<typeof UserRole>;

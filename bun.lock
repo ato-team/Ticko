@@ -32,6 +32,7 @@
         "@ticko/storage": "workspace:*",
         "@ticko/worker": "workspace:*",
         "hono": "^4.13.7",
+        "zod": "^4.6.4",
       },
     },
     "packages/channels": {
@@ -40,6 +41,9 @@
       "dependencies": {
         "@ticko/domain": "workspace:*",
         "zod": "^4.6.4",
+      },
+      "devDependencies": {
+        "hono": "^4.13.7",
       },
     },
     "packages/domain": {

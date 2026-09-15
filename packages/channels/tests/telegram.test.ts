@@ -1,8 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { ChannelFailure, Secret } from "@ticko/domain";
 import { buildRegistry } from "../src";
 import { TelegramAdapter } from "../src/telegram/adapter";
 import { parseUpdate } from "../src/telegram/update";
+import { type MockTelegramServer, startMockTelegram } from "./mock-telegram";
 
 const TOKEN = "123456:SECRET-TOKEN";
 
@@ -139,6 +140,43 @@ describe("sendText", () => {
 		const err = await failureOf(a.sendText("42", "x"));
 		expect(err.kind).toBe("network");
 		expect(JSON.stringify(err)).not.toContain("SECRET-TOKEN");
+	});
+});
+
+describe("sendText lewat mock server Bot API (B-1.6, HTTP sungguhan)", () => {
+	let mock: MockTelegramServer;
+	afterEach(() => mock?.stop());
+
+	test("429 dari server nyata → rate_limited dengan retry_after", async () => {
+		mock = startMockTelegram();
+		mock.respond("sendMessage", {
+			kind: "error",
+			status: 429,
+			body: {
+				error_code: 429,
+				description: "Too Many Requests",
+				retryAfter: 3,
+			},
+		});
+		const a = new TelegramAdapter({
+			botToken: new Secret(TOKEN),
+			apiBase: mock.url,
+		});
+		expect(await failureOf(a.sendText("42", "x"))).toEqual({
+			kind: "rate_limited",
+			retryAfterSeconds: 3,
+		});
+	});
+
+	test("server yang menggantung → timeout, bukan menunggu selamanya", async () => {
+		mock = startMockTelegram();
+		mock.respond("sendMessage", { kind: "hang" });
+		const a = new TelegramAdapter({
+			botToken: new Secret(TOKEN),
+			apiBase: mock.url,
+			timeoutMs: 50,
+		});
+		expect(await failureOf(a.sendText("42", "x"))).toEqual({ kind: "timeout" });
 	});
 });
 
