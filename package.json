@@ -16,7 +16,9 @@
 		"test": "bun test",
 		"check:domain-deps": "bun run scripts/check-domain-deps.ts",
 		"api": "bun run packages/api/src/main.ts",
-		"worker": "bun run packages/worker/src/main.ts"
+		"worker": "bun run packages/worker/src/main.ts",
+		"db:migrate": "bun run --cwd packages/storage migrate",
+		"db:check": "bun run --cwd packages/storage check"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.13",
