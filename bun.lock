@@ -32,6 +32,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@ticko/domain": "workspace:*",
+        "zod": "^4.6.4",
       },
     },
     "packages/domain": {
