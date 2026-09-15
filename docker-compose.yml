@@ -1,0 +1,37 @@
+# Lingkungan lokal saja. Kredensial di sini bukan rahasia; produksi memakai
+# docker-compose.prod.yml (Backlog B-6.x).
+name: ticko
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.1-pg16
+    environment:
+      POSTGRES_USER: ticko
+      POSTGRES_PASSWORD: ticko
+      POSTGRES_DB: ticko
+    ports:
+      - "127.0.0.1:${TICKO_PG_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Hanya dijalankan saat volume pgdata masih kosong.
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ticko -d ticko"]
+      interval: 2s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${TICKO_REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      retries: 15
+
+volumes:
+  pgdata:
+  redisdata:
