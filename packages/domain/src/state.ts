@@ -4,14 +4,18 @@ import type { ControlOwner, ConversationStatus } from "./entity";
 // PRD FR-2. Fungsi murni tanpa IO. CHECK constraint di database adalah lapis
 // kedua: tipe ini hilang saat runtime, constraint tidak.
 
-export type ConversationEvent =
-	| "message_received" // pesan pelanggan masuk
-	| "handoff_requested" // bot atau aturan meminta manusia
-	| "agent_claimed" // agent manusia mengambil alih
-	| "handed_back" // agent mengembalikan ke bot
-	| "resolved" // masalah selesai (bot atau agent)
-	| "handoff_timed_out" // tidak ada agent yang mengambil
-	| "inactivity_timeout"; // resolved tanpa aktivitas 24 jam
+// Daftar tunggal supaya test bisa mengiterasi setiap event (dipakai untuk
+// mencocokkan hasil transition() dengan trigger DB di 0004_status_transition_trigger.sql).
+export const CONVERSATION_EVENTS = [
+	"message_received", // pesan pelanggan masuk
+	"handoff_requested", // bot atau aturan meminta manusia
+	"agent_claimed", // agent manusia mengambil alih
+	"handed_back", // agent mengembalikan ke bot
+	"resolved", // masalah selesai (bot atau agent)
+	"handoff_timed_out", // tidak ada agent yang mengambil
+	"inactivity_timeout", // resolved tanpa aktivitas 24 jam
+] as const;
+export type ConversationEvent = (typeof CONVERSATION_EVENTS)[number];
 
 export type TransitionResult =
 	| { ok: true; status: ConversationStatus; controlOwner: ControlOwner }
