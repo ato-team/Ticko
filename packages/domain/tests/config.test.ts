@@ -92,3 +92,15 @@ test("ringkasan config tidak membocorkan kredensial (AC-9.4)", async () => {
 	expect(dump).not.toContain("rahasia");
 	expect(dump).toContain("[redacted]");
 });
+
+test("base_url opsional: default per penyedia, bisa ditimpa", async () => {
+	const body = (provider: string, extra = "") =>
+		`provider = "${provider}"\nmodel = "m"\n${extra}max_output_tokens = 1\ncontext_max_tokens = 1\nrecent_messages = 1\ninput_usd_per_mtok = 0\noutput_usd_per_mtok = 0\n`;
+	const url = async (toml: string) =>
+		(await loadAgentConfig(await configDir({ agent: toml }), env)).baseUrl;
+	expect(await url(body("openrouter"))).toBe("https://openrouter.ai/api/v1");
+	expect(await url(body("9router"))).toBe("http://localhost:20128/v1");
+	expect(
+		await url(body("9router", 'base_url = "http://10.0.0.5:20128/v1"\n')),
+	).toBe("http://10.0.0.5:20128/v1");
+});

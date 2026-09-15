@@ -46,6 +46,11 @@ const deps = (f: typeof fetch, timeoutMs = 30_000) => ({
 	model: "model-x",
 });
 
+const openaiDeps = (f: typeof fetch) => ({
+	...deps(f),
+	maxTokensParam: "max_completion_tokens" as const,
+});
+
 async function failure(p: Promise<unknown>) {
 	const e = await p.catch((x: unknown) => x);
 	if (!(e instanceof LlmFailure))
@@ -173,7 +178,7 @@ describe("OpenAI / kompatibel", () => {
 				usage: { prompt_tokens: 20, completion_tokens: 3 },
 			}),
 		);
-		const r = await new OpenAiClient(deps(s.fetch)).complete(req);
+		const r = await new OpenAiClient(openaiDeps(s.fetch)).complete(req);
 		expect(r).toMatchObject({
 			text: "Halo!",
 			inputTokens: 20,
@@ -199,11 +204,11 @@ describe("OpenAI / kompatibel", () => {
 			}),
 		);
 		expect(
-			await failure(new OpenAiClient(deps(refusal.fetch)).complete(req)),
+			await failure(new OpenAiClient(openaiDeps(refusal.fetch)).complete(req)),
 		).toEqual({ kind: "refused" });
 		const auth = stub(json(401, { error: { message: "bad key" } }));
 		expect(
-			await failure(new OpenAiClient(deps(auth.fetch)).complete(req)),
+			await failure(new OpenAiClient(openaiDeps(auth.fetch)).complete(req)),
 		).toEqual({ kind: "auth", status: 401 });
 	});
 });
@@ -244,4 +249,48 @@ describe("FakeLlm", () => {
 		const llm = FakeLlm.withError({ kind: "timeout" });
 		expect(await failure(llm.complete(req))).toEqual({ kind: "timeout" });
 	});
+});
+
+describe("router kompatibel OpenAI", () => {
+	const reply = json(200, {
+		choices: [{ message: { content: "Halo dari router" } }],
+	});
+	const cfg = (provider: "openrouter" | "9router", baseUrl: string) => ({
+		provider,
+		model: "anthropic/claude-sonnet-5",
+		baseUrl,
+		apiKey: new Secret(KEY),
+		maxOutputTokens: 256,
+		contextMaxTokens: 1,
+		recentMessages: 1,
+		inputUsdPerMtok: 0,
+		outputUsdPerMtok: 0,
+	});
+
+	for (const [provider, baseUrl] of [
+		["openrouter", "https://openrouter.ai/api/v1"],
+		["9router", "http://localhost:20128/v1"],
+	] as const) {
+		test(`${provider}: max_tokens, Bearer, tanpa usage/model tetap jalan`, async () => {
+			const s = stub(reply);
+			const r = await createLlmClient(cfg(provider, baseUrl), {
+				fetch: s.fetch,
+			}).complete(req);
+			expect(r).toMatchObject({
+				text: "Halo dari router",
+				model: "anthropic/claude-sonnet-5",
+				inputTokens: 0,
+				outputTokens: 0,
+			});
+			expect(s.calls[0]).toMatchObject({
+				url: `${baseUrl}/chat/completions`,
+				headers: { authorization: `Bearer ${KEY}` },
+				body: {
+					model: "anthropic/claude-sonnet-5",
+					max_tokens: 256,
+					stream: false,
+				},
+			});
+		});
+	}
 });

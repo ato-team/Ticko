@@ -7,10 +7,11 @@ import {
 	type LlmResponse,
 } from "./types";
 
-// Chat Completions (POST {base_url}/chat/completions). base_url bisa diarahkan
-// ke endpoint lain yang kompatibel.
+// Chat Completions (POST {base_url}/chat/completions): OpenAI, OpenRouter,
+// 9Router, atau endpoint lain yang kompatibel.
 const Response = z.object({
-	model: z.string(),
+	// Router tidak selalu mengembalikan model/usage; jangan gagal karenanya.
+	model: z.string().optional(),
 	choices: z
 		.array(
 			z.object({
@@ -21,14 +22,24 @@ const Response = z.object({
 			}),
 		)
 		.min(1),
-	usage: z.object({ prompt_tokens: z.number(), completion_tokens: z.number() }),
+	usage: z
+		.object({ prompt_tokens: z.number(), completion_tokens: z.number() })
+		.optional(),
 });
 
 const ErrorBody = z.object({ error: z.object({ message: z.string() }) });
 
 export class OpenAiClient implements LlmClient {
 	constructor(
-		private readonly deps: HttpDeps & { baseUrl: string; model: string },
+		private readonly deps: HttpDeps & {
+			baseUrl: string;
+			model: string;
+			/**
+			 * OpenAI menolak `max_tokens` untuk model reasoning; router yang
+			 * meneruskan ke banyak penyedia paling luas mendukung `max_tokens`.
+			 */
+			maxTokensParam: "max_completion_tokens" | "max_tokens";
+		},
 	) {}
 
 	async complete(req: LlmRequest): Promise<LlmResponse> {
@@ -38,9 +49,8 @@ export class OpenAiClient implements LlmClient {
 			{ authorization: `Bearer ${this.deps.apiKey.reveal()}` },
 			{
 				model: this.deps.model,
-				// max_tokens ditolak model reasoning OpenAI; max_completion_tokens
-				// adalah nama yang berlaku sekarang.
-				max_completion_tokens: req.maxOutputTokens,
+				stream: false,
+				[this.deps.maxTokensParam]: req.maxOutputTokens,
 				messages: [{ role: "system", content: req.system }, ...req.messages],
 			},
 			Response,
@@ -49,9 +59,10 @@ export class OpenAiClient implements LlmClient {
 		const message = data.choices[0]?.message;
 		if (message?.refusal) throw new LlmFailure({ kind: "refused" });
 		return requireText(message?.content ?? "", {
-			model: data.model,
-			inputTokens: data.usage.prompt_tokens,
-			outputTokens: data.usage.completion_tokens,
+			model: data.model ?? this.deps.model,
+			// ponytail: usage tidak dikirim router → token & biaya tercatat 0.
+			inputTokens: data.usage?.prompt_tokens ?? 0,
+			outputTokens: data.usage?.completion_tokens ?? 0,
 			latencyMs,
 		});
 	}

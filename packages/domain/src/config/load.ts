@@ -46,11 +46,28 @@ const ChannelsFile = z.strictObject({
 	telegram: z.strictObject({ enabled: z.boolean() }),
 });
 
+export const LlmProvider = z.enum([
+	"anthropic",
+	"openai",
+	"openrouter",
+	"9router",
+]);
+export type LlmProvider = z.infer<typeof LlmProvider>;
+
+/** Endpoint bawaan tiap penyedia; `base_url` di agent.toml menimpanya. */
+export const DEFAULT_LLM_BASE_URL: Record<LlmProvider, string> = {
+	anthropic: "https://api.anthropic.com",
+	openai: "https://api.openai.com/v1",
+	openrouter: "https://openrouter.ai/api/v1",
+	// 9Router self-hosted, port bawaan dashboard/API-nya.
+	"9router": "http://localhost:20128/v1",
+};
+
 const AgentFile = z.strictObject({
-	provider: z.enum(["anthropic", "openai"]),
+	provider: LlmProvider,
 	model: z.string().min(1),
-	// Diganti untuk endpoint yang kompatibel dengan API penyedia.
-	base_url: z.url(),
+	// Opsional: diisi untuk endpoint lain yang kompatibel atau 9Router di host lain.
+	base_url: z.url().optional(),
 	max_output_tokens: z.number().int().min(1),
 	context_max_tokens: z.number().int().min(1),
 	recent_messages: z.number().int().min(1),
@@ -99,7 +116,7 @@ export async function loadAgentConfig(
 	return {
 		provider: f.provider,
 		model: f.model,
-		baseUrl: f.base_url,
+		baseUrl: f.base_url ?? DEFAULT_LLM_BASE_URL[f.provider],
 		apiKey: secret(env, "TICKO_LLM_API_KEY"),
 		maxOutputTokens: f.max_output_tokens,
 		contextMaxTokens: f.context_max_tokens,
