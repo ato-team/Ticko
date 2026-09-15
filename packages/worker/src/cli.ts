@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
-import { styleText } from "node:util";
+import { stripVTControlCharacters, styleText } from "node:util";
 import { createLlmClient, type LlmClient } from "@ticko/agent";
 // Hanya alat pengecekan lokal: `--fake` sengaja memakai LLM palsu.
 import { FakeLlm } from "@ticko/agent/fake";
@@ -38,16 +38,10 @@ import { claim } from "./queue";
 
 const { agentRuns, conversations, contacts, jobs } = schema;
 
-const HELP = `Ketik pesan untuk mengirim sebagai pelanggan. Perintah:
-  /status        percakapan aktif (status, control_owner, version)
-  /msgs [n]      riwayat pesan
-  /runs [n]      agent_runs percakapan ini
-  /jobs [n]      jobs percakapan ini
-  /convs [n]     percakapan terbaru di database
-  /takeover      simulasi agent manusia mengambil alih (human_active)
-  /handback      kembalikan ke bot (bot_active)
-  /new           pelanggan baru
-  /help, /quit`;
+const HELP = `${styleText("bold", "Percakapan")}   /new  /takeover  /handback
+${styleText("bold", "Inspeksi")}     /status  /msgs [n]  /runs [n]  /jobs [n]  /convs [n]
+${styleText("bold", "Lainnya")}      /help  /quit
+Ketik teks biasa untuk mengirim pesan sebagai pelanggan.`;
 
 export interface CliDeps {
 	db: Db;
@@ -55,7 +49,70 @@ export interface CliDeps {
 	config: AgentDeps["config"];
 	systemPrompt: string;
 	print: (line: string) => void;
-	table: (rows: object[]) => void;
+}
+
+// Warna status: bot_active hijau (aman), human_active kuning (perlu perhatian),
+// selainnya (misal closed) dim.
+function statusColor(status: string): string {
+	if (status === "bot_active") return "green";
+	if (status === "human_active") return "yellow";
+	return "gray";
+}
+
+function badge(status: string): string {
+	return styleText(statusColor(status) as Parameters<typeof styleText>[0], "●");
+}
+
+function ok(s: string): string {
+	return styleText("green", `✓ ${s}`);
+}
+
+function fail(s: string): string {
+	return styleText("red", `✗ ${s}`);
+}
+
+/** id → 8 karakter pertama, tanggal → jam:menit:detik UTC, null → "-". Tampilan saja. */
+function formatCell(v: unknown): string {
+	if (v == null) return "-";
+	if (v instanceof Date) return `${v.toISOString().slice(11, 19)} UTC`;
+	if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v)) {
+		return `${v.slice(11, 19)} UTC`;
+	}
+	if (typeof v === "string" && /^[0-9a-f-]{36}$/i.test(v)) return v.slice(0, 8);
+	return String(v);
+}
+
+/** Daftar key: value vertikal, untuk satu objek (mis. /status). */
+function renderKv(row: Record<string, unknown>): string {
+	const keys = Object.keys(row);
+	const width = Math.max(...keys.map((k) => k.length));
+	return keys
+		.map(
+			(k) => `  ${styleText("bold", k.padEnd(width))}  ${formatCell(row[k])}`,
+		)
+		.join("\n");
+}
+
+/** Tabel rata kolom, dipotong ke lebar terminal. Kosong → satu baris dim. */
+function renderTable(rows: Record<string, unknown>[]): string {
+	if (rows.length === 0) return dim("(belum ada data)");
+	const cols = Object.keys(rows[0] ?? {});
+	const cells = rows.map((r) => cols.map((c) => formatCell(r[c])));
+	const widths = cols.map((c, i) =>
+		Math.max(c.length, ...cells.map((row) => row[i]?.length ?? 0)),
+	);
+	const maxWidth = (process.stdout.columns || 100) - 2;
+	const pad = (s: string, w: number) =>
+		s + " ".repeat(Math.max(0, w - s.length));
+	const line = (values: string[]) => {
+		let out = values.map((v, i) => pad(v, widths[i] ?? 0)).join("  ");
+		if (stripVTControlCharacters(out).length > maxWidth) {
+			out = `${out.slice(0, maxWidth - 1)}…`;
+		}
+		return out;
+	};
+	const header = styleText("bold", line(cols.map((c) => c.toUpperCase())));
+	return [header, ...cells.map(line)].join("\n");
 }
 
 export function createCli(deps: CliDeps) {
@@ -69,7 +126,7 @@ export function createCli(deps: CliDeps) {
 	const terminal: ChannelAdapter = {
 		channel: "telegram",
 		async sendText(_to: string, text: string): Promise<SentMessage> {
-			print(`${styleText("green", "bot ›")} ${text}`);
+			print(`${styleText("green", "bot       ›")} ${text}`);
 			seq += 1;
 			return {
 				externalMessageId: `${chatId}:out-${seq}`,
@@ -145,16 +202,27 @@ export function createCli(deps: CliDeps) {
 			.where(eq(jobs.conversationId, conversationId))
 			.orderBy(desc(jobs.createdAt))
 			.limit(1);
-		const parts = [`${conv?.status}/${conv?.controlOwner}`];
+		const parts = [
+			conv
+				? `${badge(conv.status)} ${conv.status} (${conv.controlOwner})`
+				: "?",
+		];
 		if (run && run.createdAt >= since) {
+			const mark = run.status === "succeeded" ? ok("run") : fail("run");
+			const secs = (run.latencyMs / 1000).toFixed(1);
 			parts.push(
-				`run ${run.status} ${run.promptTokens}+${run.completionTokens} tok $${run.costEstimate} ${run.latencyMs}ms${run.error ? ` (${run.error})` : ""}`,
+				`${mark} ${run.promptTokens}→${run.completionTokens} tok · $${run.costEstimate} · ${secs}s${run.error ? ` (${run.error})` : ""}`,
 			);
 		}
 		if (job && job.createdAt >= since && job.status !== "done") {
-			parts.push(`job ${job.jobType} ${job.status}: ${job.lastError ?? "-"}`);
+			parts.push(
+				styleText(
+					"yellow",
+					`job ${job.jobType} ${job.status}: ${job.lastError ?? "-"}`,
+				),
+			);
 		}
-		print(dim(parts.join(" · ")));
+		print(`  ${parts.join(dim(" · "))}`);
 	}
 
 	async function changeControl(event: ConversationEvent) {
@@ -163,13 +231,16 @@ export function createCli(deps: CliDeps) {
 		const id = conversationId;
 		const result = await db.transaction(async (tx) => {
 			const conv = await getConversation(tx, id, { forUpdate: true });
-			if (!conv) return "percakapan tidak ditemukan";
+			if (!conv) return fail("percakapan tidak ditemukan");
 			const next = transition(conv.status, event);
-			if (!next.ok) return `transisi ditolak: ${conv.status} --${event}-->`;
+			if (!next.ok)
+				return fail(`transisi ditolak: ${conv.status} --${event}-->`);
 			await updateStatus(tx, id, next.status);
-			return `${conv.status} → ${next.status} (control_owner=${next.controlOwner})`;
+			return ok(
+				`${conv.status} → ${next.status} (control_owner=${next.controlOwner})`,
+			);
 		});
-		print(styleText("yellow", result));
+		print(result);
 	}
 
 	function requireConv(): ConversationId | null {
@@ -207,19 +278,35 @@ export function createCli(deps: CliDeps) {
 				break;
 			case "/status": {
 				const id = requireConv();
-				if (id) deps.table([(await getConversation(db, id)) ?? {}]);
+				if (!id) break;
+				const conv = await getConversation(db, id);
+				if (!conv) {
+					print(dim("percakapan tidak ditemukan"));
+					break;
+				}
+				print(
+					renderKv({
+						id: conv.id,
+						status: `${badge(conv.status)} ${conv.status}`,
+						control_owner: conv.controlOwner,
+						version: conv.version,
+						last_inbound: conv.lastInboundAt,
+					}),
+				);
 				break;
 			}
 			case "/msgs": {
 				const id = requireConv();
 				if (id) {
 					const msgs = await listRecentMessages(db, id, n);
-					deps.table(
-						msgs.map((m) => ({
-							dari: m.senderType,
-							isi: m.content,
-							waktu: m.sentAt,
-						})),
+					print(
+						renderTable(
+							msgs.map((m) => ({
+								dari: m.senderType,
+								waktu: m.sentAt,
+								isi: m.content,
+							})),
+						),
 					);
 				}
 				break;
@@ -233,17 +320,19 @@ export function createCli(deps: CliDeps) {
 					.where(eq(agentRuns.conversationId, id))
 					.orderBy(desc(agentRuns.createdAt))
 					.limit(n);
-				deps.table(
-					rows.map((r) => ({
-						status: r.status,
-						model: r.model,
-						in: r.promptTokens,
-						out: r.completionTokens,
-						usd: r.costEstimate,
-						ms: r.latencyMs,
-						error: r.error,
-						jawaban: r.response?.slice(0, 60),
-					})),
+				print(
+					renderTable(
+						rows.map((r) => ({
+							status: r.status,
+							model: r.model,
+							in: r.promptTokens,
+							out: r.completionTokens,
+							usd: r.costEstimate,
+							ms: r.latencyMs,
+							error: r.error,
+							jawaban: r.response?.slice(0, 60),
+						})),
+					),
 				);
 				break;
 			}
@@ -256,14 +345,16 @@ export function createCli(deps: CliDeps) {
 					.where(eq(jobs.conversationId, id))
 					.orderBy(desc(jobs.createdAt))
 					.limit(n);
-				deps.table(
-					rows.map((j) => ({
-						tipe: j.jobType,
-						status: j.status,
-						attempts: j.attempts,
-						run_after: j.runAfter.toISOString(),
-						error: j.lastError,
-					})),
+				print(
+					renderTable(
+						rows.map((j) => ({
+							tipe: j.jobType,
+							status: j.status,
+							attempts: j.attempts,
+							run_after: j.runAfter,
+							error: j.lastError,
+						})),
+					),
 				);
 				break;
 			}
@@ -280,7 +371,7 @@ export function createCli(deps: CliDeps) {
 					.innerJoin(contacts, eq(contacts.id, conversations.contactId))
 					.orderBy(desc(conversations.updatedAt))
 					.limit(n);
-				deps.table(rows);
+				print(renderTable(rows));
 				break;
 			}
 			default:
@@ -316,7 +407,7 @@ async function main() {
 		loadAgentConfig(undefined, env),
 	]).catch((e: unknown) => {
 		if (e instanceof ConfigError) {
-			console.error(e.message);
+			console.error(fail(e.message));
 			process.exit(1);
 		}
 		throw e;
@@ -331,29 +422,26 @@ async function main() {
 		config: agent,
 		systemPrompt: await readFile(`${process.cwd()}/prompts/agent.md`, "utf8"),
 		print: (line) => console.log(line),
-		table: (rows) => console.table(rows),
 	});
 
+	const rule = "━".repeat(Math.min(process.stdout.columns || 50, 50));
+	console.log(styleText("bold", `${rule}\n  Ticko CLI\n${rule}`));
 	console.log(
-		styleText(
-			"bold",
-			`Ticko CLI · LLM: ${fake ? "FakeLlm" : `${agent.provider}/${agent.model}`}`,
-		),
+		renderKv({ LLM: fake ? "FakeLlm" : `${agent.provider}/${agent.model}` }),
 	);
 	console.log(
-		styleText(
-			"yellow",
-			"Jangan jalankan `bun run worker` bersamaan: ia bisa mengambil job CLI.",
-		),
+		`  ${styleText("yellow", "⚠ Jangan jalankan `bun run worker` bersamaan: ia bisa mengambil job CLI.")}`,
 	);
+	console.log();
 	console.log(HELP);
+	console.log();
 
 	const rl = createInterface({ input: process.stdin, output: process.stdout });
 	let closed = false;
 	rl.on("close", () => {
 		closed = true;
 	});
-	rl.setPrompt(styleText("cyan", "kamu › "));
+	rl.setPrompt(styleText("cyan", "pelanggan › "));
 	rl.prompt();
 	try {
 		// Iterator baris menyangga input, jadi perintah yang di-pipe tidak hilang.
@@ -361,9 +449,7 @@ async function main() {
 			try {
 				if (!(await cli.handle(line))) break;
 			} catch (e) {
-				console.error(
-					styleText("red", e instanceof Error ? e.message : String(e)),
-				);
+				console.error(fail(e instanceof Error ? e.message : String(e)));
 			}
 			if (!closed) rl.prompt();
 		}
