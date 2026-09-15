@@ -4,6 +4,7 @@ import { FakeLlm } from "../src/fake";
 import {
 	AnthropicClient,
 	createLlmClient,
+	describeLlmError,
 	estimateCostUsd,
 	LlmFailure,
 	OpenAiClient,
@@ -44,6 +45,12 @@ const deps = (f: typeof fetch, timeoutMs = 30_000) => ({
 	timeoutMs,
 	baseUrl: "https://llm.test",
 	model: "model-x",
+});
+
+const openaiDeps = (f: typeof fetch) => ({
+	...deps(f),
+	maxTokensParam: "max_completion_tokens" as const,
+	stream: false,
 });
 
 async function failure(p: Promise<unknown>) {
@@ -173,7 +180,7 @@ describe("OpenAI / kompatibel", () => {
 				usage: { prompt_tokens: 20, completion_tokens: 3 },
 			}),
 		);
-		const r = await new OpenAiClient(deps(s.fetch)).complete(req);
+		const r = await new OpenAiClient(openaiDeps(s.fetch)).complete(req);
 		expect(r).toMatchObject({
 			text: "Halo!",
 			inputTokens: 20,
@@ -199,11 +206,11 @@ describe("OpenAI / kompatibel", () => {
 			}),
 		);
 		expect(
-			await failure(new OpenAiClient(deps(refusal.fetch)).complete(req)),
+			await failure(new OpenAiClient(openaiDeps(refusal.fetch)).complete(req)),
 		).toEqual({ kind: "refused" });
 		const auth = stub(json(401, { error: { message: "bad key" } }));
 		expect(
-			await failure(new OpenAiClient(deps(auth.fetch)).complete(req)),
+			await failure(new OpenAiClient(openaiDeps(auth.fetch)).complete(req)),
 		).toEqual({ kind: "auth", status: 401 });
 	});
 });
@@ -244,4 +251,81 @@ describe("FakeLlm", () => {
 		const llm = FakeLlm.withError({ kind: "timeout" });
 		expect(await failure(llm.complete(req))).toEqual({ kind: "timeout" });
 	});
+});
+
+describe("router kompatibel OpenAI", () => {
+	const reply = json(200, {
+		choices: [{ message: { content: "Halo dari router" } }],
+	});
+	const cfg = (provider: "openrouter" | "9router", baseUrl: string) => ({
+		provider,
+		model: "anthropic/claude-sonnet-5",
+		baseUrl,
+		apiKey: new Secret(KEY),
+		maxOutputTokens: 256,
+		contextMaxTokens: 1,
+		recentMessages: 1,
+		inputUsdPerMtok: 0,
+		outputUsdPerMtok: 0,
+	});
+
+	for (const [provider, baseUrl] of [
+		["openrouter", "https://openrouter.ai/api/v1"],
+		["9router", "http://localhost:20128/v1"],
+	] as const) {
+		test(`${provider}: max_tokens, Bearer, tanpa usage/model tetap jalan`, async () => {
+			const s = stub(reply);
+			const r = await createLlmClient(cfg(provider, baseUrl), {
+				fetch: s.fetch,
+			}).complete(req);
+			expect(r).toMatchObject({
+				text: "Halo dari router",
+				model: "anthropic/claude-sonnet-5",
+				inputTokens: 0,
+				outputTokens: 0,
+			});
+			expect(s.calls[0]).toMatchObject({
+				url: `${baseUrl}/chat/completions`,
+				headers: { authorization: `Bearer ${KEY}` },
+				body: {
+					model: "anthropic/claude-sonnet-5",
+					max_tokens: 256,
+					stream: true,
+				},
+			});
+		});
+	}
+});
+
+test("respons SSE dirangkai: teks, model, usage dari chunk terakhir", async () => {
+	const sse = [
+		": OPENROUTER PROCESSING",
+		'data: {"model":"muse-spark","choices":[{"index":0,"delta":{"role":"assistant","content":"Halo! "}}]}',
+		'data: {"model":"muse-spark","choices":[{"index":0,"delta":{"content":"Ada yang bisa dibantu?"}}]}',
+		'data: {"model":"muse-spark","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":6}}',
+		"data: [DONE]",
+		"",
+	].join("\n\n");
+	const s = stub(
+		new Response(sse, { headers: { "content-type": "text/event-stream" } }),
+	);
+	const client = new OpenAiClient({
+		...deps(s.fetch),
+		maxTokensParam: "max_tokens",
+		stream: true,
+	});
+	expect(await client.complete(req)).toMatchObject({
+		text: "Halo! Ada yang bisa dibantu?",
+		model: "muse-spark",
+		inputTokens: 20,
+		outputTokens: 6,
+	});
+});
+
+test("content kosong → invalid_response dengan pesan yang menjelaskan", async () => {
+	const s = stub(json(200, { choices: [{ message: { content: "" } }] }));
+	const err = await failure(
+		new OpenAiClient(openaiDeps(s.fetch)).complete(req),
+	);
+	expect(describeLlmError(err)).toBe("invalid_response: jawaban kosong");
 });

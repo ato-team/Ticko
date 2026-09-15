@@ -28,11 +28,20 @@ export async function postWithRetry<T>(
 	body: unknown,
 	schema: z.ZodType<T>,
 	errorMessage: (json: unknown) => string | undefined,
+	decode: (body: string) => unknown = parseJson,
 ): Promise<{ data: T; latencyMs: number }> {
 	let last: LlmError = { kind: "network", message: "belum dicoba" };
 	for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
 		try {
-			return await postOnce(deps, url, headers, body, schema, errorMessage);
+			return await postOnce(
+				deps,
+				url,
+				headers,
+				body,
+				schema,
+				errorMessage,
+				decode,
+			);
 		} catch (e) {
 			if (!(e instanceof LlmFailure) || !isRetryable(e.error)) throw e;
 			last = e.error;
@@ -48,9 +57,11 @@ async function postOnce<T>(
 	body: unknown,
 	schema: z.ZodType<T>,
 	errorMessage: (json: unknown) => string | undefined,
+	decode: (body: string) => unknown,
 ): Promise<{ data: T; latencyMs: number }> {
 	const started = performance.now();
 	let res: Response;
+	let text: string;
 	try {
 		res = await deps.fetch(url, {
 			method: "POST",
@@ -58,6 +69,8 @@ async function postOnce<T>(
 			body: JSON.stringify(body),
 			signal: AbortSignal.timeout(deps.timeoutMs),
 		});
+		// Body dibaca di dalam try: timeout juga berlaku untuk respons streaming.
+		text = await res.text();
 	} catch (e) {
 		if (e instanceof Error && e.name === "TimeoutError") {
 			throw new LlmFailure({ kind: "timeout" });
@@ -69,7 +82,7 @@ async function postOnce<T>(
 		});
 	}
 
-	const json: unknown = await res.json().catch(() => null);
+	const json = decode(text);
 	if (!res.ok)
 		throw new LlmFailure(statusError(res.status, errorMessage(json)));
 
@@ -85,6 +98,14 @@ async function postOnce<T>(
 		data: parsed.data,
 		latencyMs: Math.round(performance.now() - started),
 	};
+}
+
+function parseJson(body: string): unknown {
+	try {
+		return JSON.parse(body);
+	} catch {
+		return null;
+	}
 }
 
 function statusError(status: number, message = ""): LlmError {

@@ -1,5 +1,6 @@
 import {
 	buildContext,
+	describeLlmError,
 	estimateCostUsd,
 	isRetryable,
 	type LlmClient,
@@ -84,7 +85,7 @@ export function agentRunHandler(deps: AgentDeps): Handlers["agent_run"] {
 				{ conversationId, messageId, traceId, prompt },
 				{
 					status: "failed",
-					error: e.error.kind,
+					error: describeLlmError(e.error),
 				},
 			);
 			if (isRetryable(e.error)) throw e;
@@ -94,7 +95,7 @@ export function agentRunHandler(deps: AgentDeps): Handlers["agent_run"] {
 				{ llm_error: e.error.kind },
 				"LLM gagal permanen, tidak membalas",
 			);
-			return cancelled(`LLM gagal: ${e.error.kind}`);
+			return cancelled(`LLM gagal: ${describeLlmError(e.error)}`);
 		}
 
 		const costEstimate = estimateCostUsd(deps.config, res);

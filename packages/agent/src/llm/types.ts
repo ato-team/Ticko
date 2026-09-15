@@ -60,6 +60,11 @@ export function isRetryable(e: LlmError): boolean {
 	}
 }
 
+/** Jenis + pesan penyedia (bila ada), untuk agent_runs.error dan log. */
+export function describeLlmError(e: LlmError): string {
+	return "message" in e && e.message ? `${e.kind}: ${e.message}` : e.kind;
+}
+
 export interface LlmClient {
 	/** Melempar `LlmFailure` saat gagal. */
 	complete(req: LlmRequest): Promise<LlmResponse>;

@@ -23,7 +23,18 @@ export function createLlmClient(
 		case "anthropic":
 			return new AnthropicClient(deps);
 		case "openai":
-			return new OpenAiClient(deps);
+			return new OpenAiClient({
+				...deps,
+				maxTokensParam: "max_completion_tokens",
+				stream: false,
+			});
+		case "openrouter":
+		case "9router":
+			return new OpenAiClient({
+				...deps,
+				maxTokensParam: "max_tokens",
+				stream: true,
+			});
 		default:
 			return assertNever(cfg.provider);
 	}

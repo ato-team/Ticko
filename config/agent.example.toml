@@ -1,14 +1,19 @@
 # Kredensial (TICKO_LLM_API_KEY) hanya dari environment.
 
-provider = "anthropic" # anthropic | openai
+# anthropic  → Messages API              (base_url bawaan https://api.anthropic.com)
+# openai     → Chat Completions          (https://api.openai.com/v1)
+# openrouter → OpenRouter                (https://openrouter.ai/api/v1), model mis. "anthropic/claude-sonnet-5"
+# 9router    → 9Router self-hosted       (http://localhost:20128/v1), model mis. "cc/claude-opus-4-7"
+provider = "anthropic"
 model = "claude-opus-5"
-# openai: "https://api.openai.com/v1", atau endpoint lain yang kompatibel
-base_url = "https://api.anthropic.com"
+# Opsional: timpa endpoint bawaan (9Router di host lain, proxy kompatibel OpenAI, dsb.)
+# base_url = "http://localhost:20128/v1"
 max_output_tokens = 1024
 context_max_tokens = 8000
 recent_messages = 20
 
 # Tarif USD per sejuta token, untuk cost_estimate di agent_runs. Nilai di bawah
-# adalah tarif claude-opus-5 per 2026-06; sesuaikan bila model/penyedia diganti.
+# adalah tarif claude-opus-5 per 2026-06; sesuaikan bila model/penyedia diganti
+# (router gratis/langganan: isi 0).
 input_usd_per_mtok = 5
 output_usd_per_mtok = 25
