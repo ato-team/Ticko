@@ -1,3 +1,4 @@
+import { assertNever } from "@ticko/domain";
 import { Box, Text } from "ink";
 import { COMMANDS, type Entry, formatCell, type Row } from "../cli";
 
@@ -244,5 +245,7 @@ export function LineView({ line }: { line: Line }) {
 					)}
 				</Text>
 			);
+		default:
+			return assertNever(line);
 	}
 }
