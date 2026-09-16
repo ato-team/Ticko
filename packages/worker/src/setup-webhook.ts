@@ -1,5 +1,6 @@
 import { TelegramAdapter } from "@ticko/channels";
-import { ConfigError, loadChannelsConfig } from "@ticko/domain";
+import { loadChannelsConfig } from "@ticko/domain";
+import { printNotice, runSteps } from "./ui/task";
 
 // B-1.5: satu perintah untuk mendaftarkan webhook Telegram. Dipakai lokal
 // lewat tunnel (ngrok/cloudflared) dan di produksi lewat domain sebenarnya.
@@ -7,31 +8,38 @@ import { ConfigError, loadChannelsConfig } from "@ticko/domain";
 
 const publicUrl = process.argv[2];
 if (!publicUrl) {
-	console.error("pakai: bun run webhook:setup <public-url>");
-	console.error(
+	printNotice("URL publik belum diberikan", [
+		"pakai:  bun run webhook:setup <public-url>",
 		"contoh: bun run webhook:setup https://contoh.trycloudflare.com",
-	);
+	]);
 	process.exit(1);
 }
 
-const channels = await loadChannelsConfig().catch((e: unknown) => {
-	if (e instanceof ConfigError) {
-		console.error(e.message);
-		process.exit(1);
-	}
-	throw e;
-});
-
-if (!channels.telegram) {
-	console.error("channel telegram tidak aktif di config/channels.toml");
-	process.exit(1);
-}
-
-const adapter = new TelegramAdapter({ botToken: channels.telegram.botToken });
 const base = publicUrl.replace(/\/$/, "");
-// Secret tidak pernah dicetak ke terminal — path lengkapnya tersimpan di
-// config/channels.toml.
-await adapter.setWebhook(
-	`${base}/webhook/telegram/${channels.telegram.webhookSecret.reveal()}`,
-);
-console.log(`webhook terdaftar: ${base}/webhook/telegram/<secret>`);
+let adapter: TelegramAdapter | undefined;
+let secret = "";
+
+const ok = await runSteps("Webhook Telegram", [
+	{
+		label: "Memuat config/channels.toml",
+		run: async () => {
+			const channels = await loadChannelsConfig();
+			if (!channels.telegram) {
+				throw new Error("channel telegram tidak aktif di config/channels.toml");
+			}
+			adapter = new TelegramAdapter({ botToken: channels.telegram.botToken });
+			secret = channels.telegram.webhookSecret.reveal();
+			return undefined;
+		},
+	},
+	{
+		label: "Mendaftarkan webhook ke Bot API",
+		run: async () => {
+			await adapter?.setWebhook(`${base}/webhook/telegram/${secret}`);
+			// Secret tidak pernah dicetak ke terminal — path lengkapnya tersimpan di
+			// config/channels.toml.
+			return `${base}/webhook/telegram/<secret>`;
+		},
+	},
+]);
+process.exit(ok ? 0 : 1);
