@@ -1,73 +1,14 @@
-import { Box, type Key, Static, Text, useApp, useInput } from "ink";
+import { Box, type Key, Static, Text, useApp, useInput, useStdout } from "ink";
 import { useEffect, useRef, useState } from "react";
-import {
-	type Cli,
-	type CliDeps,
-	type CliStatus,
-	COMMANDS,
-	createCli,
-} from "../cli";
+import { type Cli, type CliDeps, type CliStatus, createCli } from "../cli";
 import { type Line, LineView, statusColor } from "./entries";
-
-export interface LineState {
-	value: string;
-	history: string[];
-	/** Posisi saat menelusuri riwayat; null = sedang mengetik baris baru. */
-	index: number | null;
-}
-
-export const emptyLine: LineState = { value: "", history: [], index: null };
-
-export function suggest(value: string) {
-	const word = value.split(/\s/)[0] ?? "";
-	if (!value.startsWith("/") || value.includes(" ")) return [];
-	return COMMANDS.filter((c) => c.name.startsWith(word));
-}
-
-/** Reducer murni untuk prompt; `submit` terisi saat Enter. */
-export function editLine(
-	s: LineState,
-	input: string,
-	key: Partial<Key>,
-): { state: LineState; submit?: string } {
-	if (key.return) {
-		const history =
-			s.value.trim() && s.history.at(-1) !== s.value
-				? [...s.history, s.value]
-				: s.history;
-		return { state: { value: "", history, index: null }, submit: s.value };
-	}
-	if (key.upArrow) {
-		if (s.history.length === 0) return { state: s };
-		const index =
-			s.index === null ? s.history.length - 1 : Math.max(0, s.index - 1);
-		return { state: { ...s, index, value: s.history[index] ?? "" } };
-	}
-	if (key.downArrow) {
-		if (s.index === null) return { state: s };
-		const index = s.index + 1;
-		if (index >= s.history.length)
-			return { state: { ...s, index: null, value: "" } };
-		return { state: { ...s, index, value: s.history[index] ?? "" } };
-	}
-	if (key.tab) {
-		const names = suggest(s.value).map((c) => c.name);
-		if (names.length === 0) return { state: s };
-		let prefix = names[0] ?? "";
-		for (const n of names)
-			while (!n.startsWith(prefix)) prefix = prefix.slice(0, -1);
-		const value = names.length === 1 ? `${prefix} ` : prefix;
-		return {
-			state: { ...s, value: value.length > s.value.length ? value : s.value },
-		};
-	}
-	if (key.backspace || key.delete) {
-		return { state: { ...s, value: s.value.slice(0, -1) } };
-	}
-	if (key.ctrl && input === "u") return { state: { ...s, value: "" } };
-	if (key.ctrl || key.meta || key.escape || input === "") return { state: s };
-	return { state: { ...s, value: s.value + input.replace(/[\r\n]+/g, " ") } };
-}
+import {
+	editLine,
+	emptyLine,
+	type LineState,
+	searchMatch,
+	suggest,
+} from "./line-editor";
 
 type Item = { id: number; line: Line };
 
@@ -76,8 +17,73 @@ export interface AppProps {
 	llm: string;
 }
 
+function Prompt({ s }: { s: LineState }) {
+	if (s.search) {
+		const match = searchMatch(s);
+		return (
+			<Text>
+				<Text color="magenta" bold>
+					cari riwayat
+				</Text>
+				<Text dimColor> `</Text>
+				{s.search.query}
+				<Text dimColor>`: </Text>
+				{match ?? <Text dimColor>(tidak ada yang cocok)</Text>}
+			</Text>
+		);
+	}
+	return (
+		<Text>
+			<Text color="cyan" bold>
+				❯{" "}
+			</Text>
+			{s.value.slice(0, s.cursor)}
+			<Text inverse>{s.value[s.cursor] ?? " "}</Text>
+			{s.value.slice(s.cursor + 1)}
+		</Text>
+	);
+}
+
+function Hints({ s }: { s: LineState }) {
+	if (s.search) {
+		return (
+			<Text dimColor>Ctrl+R lebih lama · Enter kirim · → edit · Esc batal</Text>
+		);
+	}
+	const commands = suggest(s.menu?.base ?? s.value);
+	if (commands.length === 0) {
+		return s.value ? null : (
+			<Text dimColor>
+				Tab lengkapi · ↑↓ riwayat · Ctrl+R cari · Ctrl+L bersihkan · Ctrl+C
+				keluar · /help
+			</Text>
+		);
+	}
+	return (
+		<Box flexDirection="column">
+			{commands.map((c, i) => {
+				const selected = s.menu?.index === i;
+				return (
+					<Text key={c.name}>
+						<Text color="cyan">{selected ? "› " : "  "}</Text>
+						<Text color="cyan" bold={selected} inverse={selected}>
+							{c.name.padEnd(10)}
+						</Text>
+						<Text dimColor>
+							{" "}
+							{("args" in c ? c.args : "").padEnd(4)}
+							{c.desc}
+						</Text>
+					</Text>
+				);
+			})}
+		</Box>
+	);
+}
+
 export function App({ deps, llm }: AppProps) {
 	const { exit, waitUntilRenderFlush } = useApp();
+	const { write } = useStdout();
 	// Keluar setelah frame tanpa prompt tercetak, supaya layar akhir bersih.
 	const [done, setDone] = useState(false);
 	useEffect(() => {
@@ -86,9 +92,12 @@ export function App({ deps, llm }: AppProps) {
 	const [items, setItems] = useState<Item[]>([
 		{ id: 0, line: { kind: "banner", llm } },
 	]);
-	const [busy, setBusy] = useState(false);
 	const [prompt, setPrompt] = useState(emptyLine);
+	const [pending, setPending] = useState(0);
+	const [notice, setNotice] = useState<string | null>(null);
+	// Ref, bukan state: ketikan cepat datang sebelum render berikutnya.
 	const promptRef = useRef(emptyLine);
+	const pendingRef = useRef(0);
 	const queue = useRef(Promise.resolve());
 	const quitting = useRef(false);
 	const nextId = useRef(1);
@@ -99,51 +108,63 @@ export function App({ deps, llm }: AppProps) {
 	const cli = cliRef.current;
 	const [status, setStatus] = useState<CliStatus>(cli.status());
 
-	async function run(text: string): Promise<boolean> {
-		if (text.trim() === "") return true;
-		push({ kind: "input", text: text.trim() });
-		setBusy(true);
-		try {
-			return await cli.handle(text);
-		} catch (e) {
-			push({ kind: "fail", text: e instanceof Error ? e.message : String(e) });
-			return true;
-		} finally {
-			setStatus(cli.status());
-			setBusy(false);
+	const addPending = (n: number) => {
+		pendingRef.current += n;
+		setPending(pendingRef.current);
+	};
+
+	function quit() {
+		// Tekan kedua, atau tidak ada yang berjalan: langsung keluar.
+		if (quitting.current || pendingRef.current === 0) {
+			quitting.current = true;
+			return setDone(true);
 		}
+		quitting.current = true;
+		setNotice("keluar setelah proses ini selesai · Ctrl+C lagi untuk paksa");
+		queue.current.then(() => setDone(true));
 	}
 
-	useInput(
-		(input, key) => {
-			// Ref, bukan state: ketikan cepat datang sebelum render berikutnya.
-			const apply = (text: string, k: Partial<Key>) => {
-				const { state, submit } = editLine(promptRef.current, text, k);
-				promptRef.current = state;
-				setPrompt(state);
-				if (submit !== undefined) {
-					// Berurutan: handle() tidak boleh jalan paralel untuk satu percakapan.
-					queue.current = queue.current.then(async () => {
-						if (quitting.current) return;
-						if (!(await run(submit))) {
-							quitting.current = true;
-							setDone(true);
-						}
-					});
-				}
-			};
-			// Tombol khusus (backspace, panah, Tab) datang dengan input kosong.
-			if (key.return || !/[\r\n]/.test(input)) return apply(input, key);
-			// Paste atau ketikan cepat bisa membawa Enter di tengah satu chunk.
-			input.split(/\r\n?|\n/).forEach((part, i) => {
-				if (i > 0) apply("", { return: true });
-				if (part) apply(part, key);
-			});
-		},
-		{ isActive: !busy },
-	);
+	function enqueue(text: string) {
+		if (text.trim() === "") return;
+		addPending(1);
+		// Berurutan: handle() tidak boleh jalan paralel untuk satu percakapan.
+		queue.current = queue.current.then(async () => {
+			try {
+				if (quitting.current) return;
+				push({ kind: "input", text: text.trim() });
+				if (!(await cli.handle(text))) quit();
+			} catch (e) {
+				push({
+					kind: "fail",
+					text: e instanceof Error ? e.message : String(e),
+				});
+			} finally {
+				setStatus(cli.status());
+				addPending(-1);
+			}
+		});
+	}
 
-	const hints = busy ? [] : suggest(prompt.value);
+	function apply(input: string, key: Partial<Key>) {
+		const { state, submit, action } = editLine(promptRef.current, input, key);
+		promptRef.current = state;
+		setPrompt(state);
+		if (!quitting.current) setNotice(null);
+		if (submit !== undefined) enqueue(submit);
+		if (action === "exit") quit();
+		if (action === "clear") write("\x1b[2J\x1b[3J\x1b[H");
+	}
+
+	// Tetap aktif saat memproses: pengguna bisa mengetik duluan, Enter masuk antrean.
+	useInput((input, key) => {
+		// Tombol khusus (backspace, panah, Tab) datang dengan input kosong.
+		if (key.return || !/[\r\n]/.test(input)) return apply(input, key);
+		// Paste atau ketikan cepat bisa membawa Enter di tengah satu chunk.
+		input.split(/\r\n?|\n/).forEach((part, i) => {
+			if (i > 0) apply("", { return: true });
+			if (part) apply(part, key);
+		});
+	});
 
 	return (
 		<>
@@ -163,26 +184,15 @@ export function App({ deps, llm }: AppProps) {
 							<Text dimColor> · control_owner={status.controlOwner}</Text>
 						)}
 						<Text dimColor> · {status.chatId}</Text>
-					</Text>
-					{busy ? (
-						<Text color="yellow">… memproses</Text>
-					) : (
-						<Text>
-							<Text color="cyan" bold>
-								❯{" "}
+						{pending > 0 && (
+							<Text color="yellow">
+								{" "}
+								· … memproses{pending > 1 ? ` (+${pending - 1} antre)` : ""}
 							</Text>
-							{prompt.value}
-							<Text inverse> </Text>
-						</Text>
-					)}
-					{hints.map((c) => (
-						<Text key={c.name}>
-							{"  "}
-							<Text color="cyan">{c.name.padEnd(10)}</Text>
-							<Text dimColor>{("args" in c ? c.args : "").padEnd(4)}</Text>
-							<Text dimColor>{c.desc}</Text>
-						</Text>
-					))}
+						)}
+					</Text>
+					<Prompt s={prompt} />
+					{notice ? <Text color="yellow">{notice}</Text> : <Hints s={prompt} />}
 				</Box>
 			)}
 		</>

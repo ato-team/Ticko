@@ -93,6 +93,25 @@ function Kv({ title, row }: { title: string; row: Row }) {
 	);
 }
 
+const SHORTCUTS = [
+	["Enter", "kirim (boleh saat memproses, masuk antrean)"],
+	["Tab / Shift+Tab", "lengkapi perintah, putar pilihan menu"],
+	["↑ ↓  Ctrl+P/N", "riwayat (atau pilih di menu)"],
+	["Ctrl+R", "cari riwayat; Ctrl+R lagi untuk lebih lama"],
+	["← →  Ctrl+B/F", "geser kursor"],
+	["Ctrl/Alt+← →  Alt+B/F", "lompat per kata"],
+	["Home End  Ctrl+A/E", "awal / akhir baris"],
+	["Backspace  Delete", "hapus sebelum / di kursor"],
+	["Ctrl+W  Alt+Backspace", "hapus kata sebelumnya"],
+	["Alt+D", "hapus kata berikutnya"],
+	["Ctrl+U  Ctrl+K", "hapus ke awal / ke akhir baris"],
+	["Ctrl+Y", "tempel teks yang terakhir dihapus"],
+	["Esc", "tutup menu / kosongkan baris"],
+	["Ctrl+L", "bersihkan layar"],
+	["Ctrl+C", "kosongkan baris; di baris kosong keluar"],
+	["Ctrl+D", "keluar di baris kosong"],
+] as const;
+
 function Help() {
 	const groups = [...new Set(COMMANDS.map((c) => c.group))];
 	return (
@@ -118,10 +137,18 @@ function Help() {
 					))}
 				</Box>
 			))}
+			<Box flexDirection="column" marginBottom={1}>
+				<Text bold>Keyboard</Text>
+				{SHORTCUTS.map(([keys, desc]) => (
+					<Box key={keys}>
+						<Box width={24} flexShrink={0}>
+							<Text color="cyan">{keys}</Text>
+						</Box>
+						<Text dimColor>{desc}</Text>
+					</Box>
+				))}
+			</Box>
 			<Text>Ketik teks biasa untuk mengirim pesan sebagai pelanggan.</Text>
-			<Text dimColor>
-				Tab melengkapi perintah · ↑/↓ riwayat · Ctrl+C keluar
-			</Text>
 		</Box>
 	);
 }

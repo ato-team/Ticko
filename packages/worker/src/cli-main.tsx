@@ -44,7 +44,10 @@ const llm = fake ? "FakeLlm" : `${agent.provider}/${agent.model}`;
 
 try {
 	if (process.stdin.isTTY) {
-		await render(<App deps={deps} llm={llm} />).waitUntilExit();
+		// Ctrl+C ditangani App: kosongkan baris dulu, keluar di baris kosong.
+		await render(<App deps={deps} llm={llm} />, {
+			exitOnCtrlC: false,
+		}).waitUntilExit();
 	} else {
 		// Input di-pipe: tanpa prompt live, setiap entry langsung dicetak.
 		const print = (line: Line) =>
@@ -69,3 +72,5 @@ try {
 } finally {
 	await close(db);
 }
+// Paksa keluar (Ctrl+C kedua) bisa meninggalkan request LLM yang masih berjalan.
+process.exit(0);
