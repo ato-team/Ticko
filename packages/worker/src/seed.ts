@@ -1,11 +1,11 @@
 import {
-	ConfigError,
 	type ConversationStatus,
 	controlOwnerFor,
 	loadAppConfig,
 } from "@ticko/domain";
 import { close, connect, type Db, schema } from "@ticko/storage";
 import { eq } from "drizzle-orm";
+import { runSteps } from "./ui/task";
 
 // A-1.5: `bun run db:seed` mengisi database dengan data realistis supaya Dev B
 // bisa membangun halaman inbox (Sprint 2) sebelum alur handoff (Sprint 3)
@@ -173,20 +173,26 @@ export async function runSeed(
 }
 
 if (import.meta.main) {
-	const config = await loadAppConfig().catch((e: unknown) => {
-		if (e instanceof ConfigError) {
-			console.error(e.message);
-			process.exit(1);
-		}
-		throw e;
-	});
-	const db = connect(config.database);
-	try {
-		const result = await runSeed(db);
-		console.log(
-			`seed selesai: ${result.contacts} kontak, ${result.conversations} percakapan`,
-		);
-	} finally {
-		await close(db);
-	}
+	let db: Db | undefined;
+	let config: Awaited<ReturnType<typeof loadAppConfig>> | undefined;
+	const ok = await runSteps("Seed data", [
+		{
+			label: "Memuat config/app.toml",
+			run: async () => {
+				config = await loadAppConfig();
+				return undefined;
+			},
+		},
+		{
+			label: "Mengisi kontak, percakapan, dan pesan",
+			run: async () => {
+				if (!config) throw new Error("config belum dimuat");
+				db = connect(config.database);
+				const r = await runSeed(db);
+				return `${r.contacts} kontak, ${r.conversations} percakapan`;
+			},
+		},
+	]);
+	if (db) await close(db);
+	process.exit(ok ? 0 : 1);
 }
