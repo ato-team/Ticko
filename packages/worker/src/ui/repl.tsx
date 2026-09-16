@@ -132,7 +132,8 @@ export function App({ deps, llm }: AppProps) {
 					});
 				}
 			};
-			if (key.return) return apply(input, key);
+			// Tombol khusus (backspace, panah, Tab) datang dengan input kosong.
+			if (key.return || !/[\r\n]/.test(input)) return apply(input, key);
 			// Paste atau ketikan cepat bisa membawa Enter di tengah satu chunk.
 			input.split(/\r\n?|\n/).forEach((part, i) => {
 				if (i > 0) apply("", { return: true });
