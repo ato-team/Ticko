@@ -9,6 +9,7 @@
 		"exactOptionalPropertyTypes": true,
 		"noFallthroughCasesInSwitch": true,
 		"verbatimModuleSyntax": true,
+		"jsx": "react-jsx",
 		"skipLibCheck": true,
 		"types": ["bun"]
 	}
