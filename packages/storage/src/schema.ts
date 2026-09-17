@@ -58,14 +58,18 @@ export const users = pgTable("users", {
 // Session login internal (B-1.7). `id` adalah sha256(token) hex — token
 // mentah cuma ada di cookie klien, kebocoran baris ini tidak cukup untuk
 // login sebagai user.
-export const sessions = pgTable("sessions", {
-	id: text("id").primaryKey(),
-	userId: uuid("user_id")
-		.notNull()
-		.references(() => users.id),
-	expiresAt: ts("expires_at").notNull(),
-	createdAt: createdAt(),
-});
+export const sessions = pgTable(
+	"sessions",
+	{
+		id: text("id").primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id),
+		expiresAt: ts("expires_at").notNull(),
+		createdAt: createdAt(),
+	},
+	(t) => [index("sessions_user_id_idx").on(t.userId)],
+);
 
 export const contacts = pgTable(
 	"contacts",
@@ -146,6 +150,7 @@ export const messages = pgTable(
 			t.conversationId,
 			t.createdAt,
 		),
+		index("messages_sender_user_id_idx").on(t.senderUserId),
 	],
 );
 
@@ -217,6 +222,8 @@ export const agentRuns = pgTable(
 			t.conversationId,
 			t.createdAt,
 		),
+		index("agent_runs_message_id_idx").on(t.messageId),
+		index("agent_runs_reply_message_id_idx").on(t.replyMessageId),
 	],
 );
 

@@ -50,6 +50,13 @@
       "when": 1789496553660,
       "tag": "0006_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789655821564,
+      "tag": "0007_fk_indexes",
+      "breakpoints": true
     }
   ]
 }

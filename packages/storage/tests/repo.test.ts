@@ -5,6 +5,8 @@ import {
 	findActiveOrCreate,
 	findOrCreateContact,
 	getConversation,
+	getMessage,
+	insertAgentRun,
 	insertDeadLetter,
 	insertInbound,
 	insertOutbound,
@@ -220,6 +222,100 @@ test("listRecentMessages: N terakhir, urut lama → baru, termasuk balasan bot",
 			["contact", "m5"],
 			["bot", "balasan"],
 		]);
+	});
+});
+
+test("insertOutbound menyimpan pesan bot/system tanpa externalMessageId", async () => {
+	await withTestDb(async (tx) => {
+		const c = await findOrCreateContact(tx, {
+			channel: "telegram",
+			externalId: "12",
+			displayName: null,
+		});
+		const conv = await findActiveOrCreate(tx, {
+			contactId: c.id,
+			channel: "telegram",
+			externalConversationId: "12",
+		});
+		const id = await insertOutbound(tx, {
+			conversationId: conv.id,
+			senderType: "system",
+			content: "sistem: eskalasi",
+		});
+		const rows = await tx.select().from(messages).where(eq(messages.id, id));
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			senderType: "system",
+			content: "sistem: eskalasi",
+			externalMessageId: null,
+		});
+	});
+});
+
+test("getMessage mengembalikan pesan tersimpan, null bila tidak ada", async () => {
+	await withTestDb(async (tx) => {
+		const c = await findOrCreateContact(tx, {
+			channel: "telegram",
+			externalId: "13",
+			displayName: null,
+		});
+		const conv = await findActiveOrCreate(tx, {
+			contactId: c.id,
+			channel: "telegram",
+			externalConversationId: "13",
+		});
+		const inserted = await insertInbound(
+			tx,
+			conv.id,
+			inbound("13:1", "halo bot"),
+		);
+		if (!inserted.ok) throw new Error("insertInbound gagal");
+
+		const found = await getMessage(tx, inserted.id);
+		expect(found).toMatchObject({
+			id: inserted.id,
+			conversationId: conv.id,
+			senderType: "contact",
+			content: "halo bot",
+		});
+
+		await tx.delete(messages).where(eq(messages.id, inserted.id));
+		expect(await getMessage(tx, inserted.id)).toBeNull();
+	});
+});
+
+test("insertAgentRun mencatat jejak pemanggilan LLM (AC-3.6)", async () => {
+	await withTestDb(async (tx) => {
+		const c = await findOrCreateContact(tx, {
+			channel: "telegram",
+			externalId: "14",
+			displayName: null,
+		});
+		const conv = await findActiveOrCreate(tx, {
+			contactId: c.id,
+			channel: "telegram",
+			externalConversationId: "14",
+		});
+		const inserted = await insertInbound(tx, conv.id, inbound("14:1"));
+		if (!inserted.ok) throw new Error("insertInbound gagal");
+		const replyId = await insertOutbound(tx, {
+			conversationId: conv.id,
+			senderType: "bot",
+			content: "balasan bot",
+		});
+
+		const runId = await insertAgentRun(tx, {
+			conversationId: conv.id,
+			messageId: inserted.id,
+			replyMessageId: replyId,
+			traceId: "trace-14",
+			status: "succeeded",
+			model: "test-model",
+			prompt: { messages: [] },
+			response: "balasan bot",
+		});
+
+		expect(typeof runId).toBe("string");
 	});
 });
 
