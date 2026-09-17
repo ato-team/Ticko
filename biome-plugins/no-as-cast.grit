@@ -1,0 +1,10 @@
+// CONVENTIONS.md §3: tidak ada `as` paksa di luar test, kecuali `as const` atau
+// disertai komentar `// SAFETY: ...`. Grit tidak bisa membaca komentar baris
+// sebelumnya, jadi pengecualian SAFETY tetap diperiksa manual saat review (▲).
+// Pengecualian file test diatur lewat `includes` plugin ini di biome.json.
+// Dibatasi ke node `TsAsExpression` (bukan pola teks `$expr as $type`) supaya
+// tidak ikut menangkap alias `import { X as Y }` / `export { X as Y }`.
+TsAsExpression($expression, $type) where {
+	$type <: not "const",
+	register_diagnostic(span=$type, message="`as` paksa dilarang di luar `as const` (CONVENTIONS.md §3). Pakai parser Zod di batas data eksternal, atau tambahkan komentar // SAFETY: ... kalau invariannya benar-benar terjamin.", severity="error")
+}

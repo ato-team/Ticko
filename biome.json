@@ -1,5 +1,39 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
 	"vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-	"files": { "includes": ["**", "!packages/storage/migrations"] }
+	"files": { "includes": ["**", "!packages/storage/migrations"] },
+	"linter": {
+		"rules": {
+			"preset": "recommended",
+			"style": {
+				"noNonNullAssertion": "error"
+			}
+		}
+	},
+	"plugins": [
+		{
+			"path": "./biome-plugins/no-timers.grit",
+			"includes": [
+				"**",
+				"!**/packages/worker/src/poller.ts",
+				"!**/apps/desk/src/lib/tick.ts"
+			]
+		},
+		{
+			"path": "./biome-plugins/no-as-cast.grit",
+			"includes": ["**", "!**/tests/**"]
+		}
+	],
+	"overrides": [
+		{
+			"includes": ["**/tests/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noNonNullAssertion": "off"
+					}
+				}
+			}
+		}
+	]
 }
