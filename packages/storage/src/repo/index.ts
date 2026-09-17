@@ -15,7 +15,7 @@ import {
 } from "@ticko/domain";
 import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { Executor } from "./db";
+import type { Executor } from "../db";
 import {
 	agentRuns,
 	contacts,
@@ -24,7 +24,9 @@ import {
 	messages,
 	sessions,
 	users,
-} from "./schema";
+} from "../schema";
+
+export * from "./types";
 
 // Baris database diparse ke tipe ber-brand lewat Zod, bukan di-`as`.
 const iso = z.date().transform((d) => d.toISOString());
