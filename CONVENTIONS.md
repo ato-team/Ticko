@@ -193,6 +193,28 @@ Detail error internal **tidak pernah** dikirim ke klien. Format respons error se
 2. Saat inisialisasi aplikasi, di mana kegagalan memang harus menghentikan proses — dan wajib disertai pesan yang menjelaskan apa yang salah
 3. Pada invarian yang benar-benar dijamin, disertai komentar `// SAFETY: ...` yang menjelaskan kenapa
 
+`// SAFETY: ...` menjelaskan **alasan** untuk reviewer manusia — linter tidak
+membacanya. Plugin Grit (`biome-plugins/no-as-cast.grit`) tidak bisa melihat
+komentar baris sebelumnya, jadi setiap `as` (di luar `as const`) tetap
+di-flag tanpa syarat. Untuk benar-benar meredam lint, tambahkan **juga**
+komentar `// biome-ignore lint/plugin: <alasan>` tepat di atas baris cast
+(Biome mengelompokkan semua diagnostik plugin Grit di bawah kategori generik
+`plugin`, bukan nama per-plugin). Pola lengkapnya:
+
+```ts
+// SAFETY: id ini sudah divalidasi oleh repo.get sebelumnya, tidak pernah undefined
+// biome-ignore lint/plugin: cast diperlukan karena Grit tidak baca komentar SAFETY
+const conv = (await repo.get(id)) as Conversation;
+```
+
+Menulis `// SAFETY: ...` saja **tidak cukup** untuk lolos `bun run lint` —
+keduanya wajib ada.
+
+Catatan implementasi: `no-as-cast.grit` mencocokkan node `TsAsExpression`,
+nama internal/tidak terdokumentasi resmi Biome yang ditemukan lewat coba-coba
+di Biome 2.5.13. Kalau upgrade Biome bikin plugin ini gagal compile, dugaan
+pertama: nama node-kind berganti — cari nama barunya, bukan debug dari nol.
+
 ```ts
 // BENAR
 const cfg = timeConfigSchema.parse(raw);   // melempar saat start dengan pesan Zod yang jelas
