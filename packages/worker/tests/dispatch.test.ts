@@ -5,10 +5,10 @@ import { fromAdapters } from "@ticko/channels";
 import { MockChannelAdapter } from "@ticko/channels/fake";
 import { ConversationId, type InboundMessage } from "@ticko/domain";
 import {
+	changeStatus,
 	getConversation,
 	listRecentMessages,
 	schema,
-	updateStatus,
 } from "@ticko/storage";
 import { createLogger } from "@ticko/storage/log";
 import { createTestDb } from "@ticko/storage/testing";
@@ -28,6 +28,7 @@ beforeEach(async () => {
 	await t.db.delete(schema.jobs);
 	await t.db.delete(schema.agentRuns);
 	await t.db.delete(schema.messages);
+	await t.db.delete(schema.conversationEvents);
 	await t.db.delete(schema.conversations);
 	await t.db.delete(schema.contacts);
 });
@@ -137,7 +138,9 @@ test("HANDOFF: control_owner=human saat pesan masuk → tersimpan, tidak ada job
 	if (first.kind !== "stored") throw new Error("harus stored");
 	await w.drain();
 	w.adapter.sent.length = 0;
-	await updateStatus(t.db, first.conversationId, "human_active");
+	await t.db.transaction((tx) =>
+		changeStatus(tx, { id: first.conversationId, event: "agent_claimed" }),
+	);
 
 	const r = await receiveInbound(t.db, inbound("masih di sana?"), "t");
 	expect(r).toMatchObject({ kind: "stored", botScheduled: false });
@@ -154,7 +157,9 @@ test("HANDOFF: control_owner berubah setelah job dijadwalkan → worker membatal
 	const w = worker();
 	const r = await receiveInbound(t.db, inbound("halo"), "t");
 	if (r.kind !== "stored") throw new Error("harus stored");
-	await updateStatus(t.db, r.conversationId, "human_active");
+	await t.db.transaction((tx) =>
+		changeStatus(tx, { id: r.conversationId, event: "agent_claimed" }),
+	);
 
 	await w.drain();
 	expect(w.adapter.sent).toHaveLength(0);
@@ -202,10 +207,11 @@ test("HANDOFF: control_owner berubah SELAMA LLM berjalan → jawaban dibuang, ti
 	const llm: LlmClient = {
 		complete: async () => {
 			// Agent manusia mengambil alih tepat saat LLM sedang berpikir.
-			await updateStatus(
-				t.db,
-				ConversationId.parse(conversationId),
-				"human_active",
+			await t.db.transaction((tx) =>
+				changeStatus(tx, {
+					id: ConversationId.parse(conversationId),
+					event: "agent_claimed",
+				}),
 			);
 			return {
 				text: "jawaban basi",

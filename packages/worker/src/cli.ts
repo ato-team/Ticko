@@ -1,18 +1,17 @@
 import type { LlmClient } from "@ticko/agent";
 import { fromAdapters } from "@ticko/channels";
-import {
-	type ChannelAdapter,
-	type ConversationEvent,
-	type ConversationId,
-	type SentMessage,
-	transition,
+import type {
+	ChannelAdapter,
+	ConversationEvent,
+	ConversationId,
+	SentMessage,
 } from "@ticko/domain";
 import {
+	changeStatus,
 	type Db,
 	getConversation,
 	listRecentMessages,
 	schema,
-	updateStatus,
 } from "@ticko/storage";
 import { createLogger } from "@ticko/storage/log";
 import { desc, eq } from "drizzle-orm";
@@ -213,16 +212,15 @@ export function createCli(deps: CliDeps) {
 		const id = requireConv();
 		if (!id) return;
 		const result = await db.transaction(async (tx): Promise<Entry> => {
-			const conv = await getConversation(tx, id, { forUpdate: true });
+			const conv = await getConversation(tx, id);
 			if (!conv) return { kind: "fail", text: "percakapan tidak ditemukan" };
-			const next = transition(conv.status, event);
+			const next = await changeStatus(tx, { id, event });
 			if (!next.ok) {
 				return {
 					kind: "fail",
 					text: `transisi ditolak: ${conv.status} --${event}-->`,
 				};
 			}
-			await updateStatus(tx, id, next.status);
 			return {
 				kind: "ok",
 				text: `${conv.status} → ${next.status} (control_owner=${next.controlOwner})`,
