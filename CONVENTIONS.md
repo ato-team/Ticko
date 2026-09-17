@@ -15,7 +15,7 @@ Dokumen ini dibaca saat **menulis kode**, bukan saat planning. Panjangnya sengaj
 
 Aturan di sini bukan selera. Masing-masing lahir dari satu kelas bug yang ingin dicegah, dan alasannya ditulis supaya kalian bisa memutuskan sendiri kapan pengecualian masuk akal.
 
-**Catatan khusus versi ini.** Sebagian aturan di bawah dulu ditegakkan compiler Rust dan sekarang tidak lagi. Bagian-bagian itu ditandai dengan ▲. Aturan bertanda ▲ **wajib masuk checklist reviewer**, karena tidak ada yang akan menangkapnya secara otomatis.
+**Catatan khusus versi ini.** Sebagian aturan di bawah dulu ditegakkan compiler Rust dan sekarang tidak lagi. Bagian-bagian itu ditandai dengan ▲. Sejak Task 0.1, beberapa aturan bertanda ▲ (seperti `as` dan `!`) kini ditegakkan lint; sisanya dan konteks lengkap tetap **wajib masuk checklist reviewer**.
 
 ---
 
@@ -496,7 +496,7 @@ Satu commit satu perubahan logis. Commit berjudul "fix stuff" atau "wip" di-squa
 
 ### Checklist reviewer
 
-Reviewer memeriksa hal-hal ini, bukan sekadar memberi stempel. Poin bertanda ▲ adalah yang **tidak ada compiler-nya** — kalau reviewer melewatkannya, tidak ada lapis kedua.
+Reviewer memeriksa hal-hal ini, bukan sekadar memberi stempel. Poin bertanda ▲ sebagian ditegakkan lint (`as`, `!`), sisanya hanya bisa diverifikasi manual; kalau reviewer melewatkan yang manual, tidak ada lapis kedua.
 
 - [ ] Seluruh checkbox "Selesai bila" benar-benar terpenuhi, bukan hanya diklaim
 - [ ] ▲ Tidak ada `any`, `as` paksa, `!`, atau `@ts-ignore` di luar pengecualian Bagian 3
@@ -512,6 +512,8 @@ Reviewer memeriksa hal-hal ini, bukan sekadar memberi stempel. Poin bertanda ▲
 - [ ] Kalau menambah interface, test double-nya ikut dalam PR yang sama
 
 **Batas waktu review: 1 hari kerja.** Review yang menumpuk lebih merugikan daripada review yang kurang teliti, karena penulisnya sudah pindah konteks dan harus kembali lagi.
+
+**Branch protection:** GitHub Free tidak mendukung branch protection rules (403 error), jadi pembatasan merge ke `main` ditegakkan lewat kesepakatan tim: semua perubahan masuk melalui PR yang sudah di-approve sesuai checklist di atas. Tidak ada bypass lewat force push.
 
 ---
 
