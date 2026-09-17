@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { assertNever, type InboundMessage } from "@ticko/domain";
+import { assertNever, type InboundMessage, UserId } from "@ticko/domain";
 import { eq } from "drizzle-orm";
 import {
+	changeStatus,
 	findActiveOrCreate,
 	findOrCreateContact,
 	getConversation,
@@ -12,11 +13,11 @@ import {
 	insertOutbound,
 	listRecentMessages,
 	recordInboundAt,
-	updateStatus,
 } from "../src/repo";
 import {
 	agentRuns,
 	contacts,
+	conversationEvents,
 	conversations,
 	deadLetters,
 	messages,
@@ -120,7 +121,7 @@ test("pesan dari kontak dengan percakapan aktif digabung ke sana; closed membuat
 			version: 0,
 		});
 
-		await updateStatus(tx, first.id, "bot_active");
+		await changeStatus(tx, { id: first.id, event: "message_received" });
 		const again = await findActiveOrCreate(tx, input);
 		expect(again).toMatchObject({
 			id: first.id,
@@ -129,8 +130,8 @@ test("pesan dari kontak dengan percakapan aktif digabung ke sana; closed membuat
 			version: 1,
 		});
 
-		await updateStatus(tx, first.id, "resolved");
-		await updateStatus(tx, first.id, "closed");
+		await changeStatus(tx, { id: first.id, event: "resolved" });
+		await changeStatus(tx, { id: first.id, event: "inactivity_timeout" });
 		const fresh = await findActiveOrCreate(tx, input);
 		expect(fresh.id).not.toBe(first.id);
 	});
@@ -339,6 +340,135 @@ test("insertAgentRun mencatat jejak pemanggilan LLM (AC-3.6)", async () => {
 			prompt: { messages: [] },
 			response: "balasan bot",
 		});
+	});
+});
+
+test("changeStatus mencatat satu conversation_events per perubahan status (AC-2.6)", async () => {
+	await withTestDb(async (tx) => {
+		const c = await findOrCreateContact(tx, {
+			channel: "telegram",
+			externalId: "15",
+			displayName: null,
+		});
+		const conv = await findActiveOrCreate(tx, {
+			contactId: c.id,
+			channel: "telegram",
+			externalConversationId: "15",
+		});
+
+		const result = await changeStatus(tx, {
+			id: conv.id,
+			event: "message_received",
+		});
+		expect(result).toMatchObject({ ok: true, status: "bot_active" });
+
+		const rows = await tx
+			.select()
+			.from(conversationEvents)
+			.where(eq(conversationEvents.conversationId, conv.id));
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			conversationId: conv.id,
+			fromStatus: "new",
+			toStatus: "bot_active",
+			trigger: "message_received",
+			triggeredByUserId: null,
+		});
+	});
+});
+
+test("changeStatus menolak transisi tak sah tanpa menulis apa pun", async () => {
+	await withTestDb(async (tx) => {
+		const c = await findOrCreateContact(tx, {
+			channel: "telegram",
+			externalId: "16",
+			displayName: null,
+		});
+		const conv = await findActiveOrCreate(tx, {
+			contactId: c.id,
+			channel: "telegram",
+			externalConversationId: "16",
+		});
+
+		// "new" tidak menerima resolved.
+		const result = await changeStatus(tx, { id: conv.id, event: "resolved" });
+		expect(result.ok).toBe(false);
+
+		const after = await getConversation(tx, conv.id);
+		expect(after?.status).toBe("new");
+		const rows = await tx
+			.select()
+			.from(conversationEvents)
+			.where(eq(conversationEvents.conversationId, conv.id));
+		expect(rows).toHaveLength(0);
+	});
+});
+
+test("changeStatus tanpa perubahan status sungguhan tidak menulis event", async () => {
+	await withTestDb(async (tx) => {
+		const c = await findOrCreateContact(tx, {
+			channel: "telegram",
+			externalId: "17",
+			displayName: null,
+		});
+		const conv = await findActiveOrCreate(tx, {
+			contactId: c.id,
+			channel: "telegram",
+			externalConversationId: "17",
+		});
+		await changeStatus(tx, { id: conv.id, event: "message_received" });
+
+		// bot_active + message_received tetap bot_active (event.ts: tidak berubah).
+		const result = await changeStatus(tx, {
+			id: conv.id,
+			event: "message_received",
+		});
+		expect(result).toMatchObject({ ok: true, status: "bot_active" });
+
+		const rows = await tx
+			.select()
+			.from(conversationEvents)
+			.where(eq(conversationEvents.conversationId, conv.id));
+		expect(rows).toHaveLength(1); // hanya dari transisi new → bot_active di atas
+		const after = await getConversation(tx, conv.id);
+		expect(after?.version).toBe(1); // versi tidak naik lagi
+	});
+});
+
+test("changeStatus: kegagalan insert event membatalkan update status juga (AC-2.6)", async () => {
+	await withTestDb(async (tx) => {
+		const c = await findOrCreateContact(tx, {
+			channel: "telegram",
+			externalId: "18",
+			displayName: null,
+		});
+		const conv = await findActiveOrCreate(tx, {
+			contactId: c.id,
+			channel: "telegram",
+			externalConversationId: "18",
+		});
+		await changeStatus(tx, { id: conv.id, event: "message_received" });
+
+		const badUserId = UserId.parse("00000000-0000-0000-0000-000000000000");
+		// userId acak tidak ada di tabel users → FK gagal saat insert event,
+		// yang harus membatalkan update conversations.status juga.
+		await expect(
+			tx.transaction((sp) =>
+				changeStatus(sp, {
+					id: conv.id,
+					event: "handoff_requested",
+					userId: badUserId,
+				}),
+			),
+		).rejects.toThrow();
+
+		const after = await getConversation(tx, conv.id);
+		expect(after?.status).toBe("bot_active");
+		const rows = await tx
+			.select()
+			.from(conversationEvents)
+			.where(eq(conversationEvents.conversationId, conv.id));
+		expect(rows).toHaveLength(1); // cuma event new → bot_active, bukan yang gagal
 	});
 });
 

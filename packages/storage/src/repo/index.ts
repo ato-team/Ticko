@@ -3,22 +3,24 @@ import {
 	Channel,
 	ContactId,
 	ControlOwner,
+	type ConversationEvent,
 	ConversationId,
-	type ConversationStatus,
 	ConversationStatus as ConversationStatusSchema,
-	controlOwnerFor,
 	type InboundMessage,
 	MessageId,
 	SenderType,
+	type TransitionResult,
+	transition,
 	UserId,
 	UserRole,
 } from "@ticko/domain";
 import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { Executor } from "../db";
+import type { Executor, Tx } from "../db";
 import {
 	agentRuns,
 	contacts,
+	conversationEvents,
 	conversations,
 	deadLetters,
 	messages,
@@ -128,21 +130,49 @@ export async function getConversation(
 	return row ? Conversation.parse(row) : null;
 }
 
-/** control_owner selalu diturunkan dari status; tidak bisa disetel terpisah. */
-export async function updateStatus(
-	ex: Executor,
-	id: ConversationId,
-	status: ConversationStatus,
-): Promise<void> {
-	await ex
+/**
+ * transition() + tulis DB + catat event, satu transaksi (A-2.1, AC-2.6).
+ * Mengunci ulang baris (sudah dikunci pemanggil dalam tx yang sama, jadi ini
+ * tidak menunggu) supaya fungsi ini berdiri sendiri tanpa status lama sebagai
+ * parameter terpisah. Ditolak → tidak menulis apa pun. Status tidak berubah
+ * (mis. message_received di status yang sama) → tidak menulis apa pun juga,
+ * event log hanya untuk perubahan sungguhan.
+ */
+export async function changeStatus(
+	tx: Tx,
+	{
+		id,
+		event,
+		userId,
+	}: { id: ConversationId; event: ConversationEvent; userId?: UserId },
+): Promise<TransitionResult> {
+	const conv = await getConversation(tx, id, { forUpdate: true });
+	if (!conv) {
+		// Baris hilang di tengah transaksi berarti bug pemanggil, bukan kasus
+		// yang punya arti domain — biarkan meledak.
+		throw new Error(`percakapan ${id} hilang saat changeStatus`);
+	}
+	const result = transition(conv.status, event);
+	if (!result.ok) return result;
+	if (result.status === conv.status) return result;
+
+	await tx
 		.update(conversations)
 		.set({
-			status,
-			controlOwner: controlOwnerFor(status),
+			status: result.status,
+			controlOwner: result.controlOwner,
 			version: sql`${conversations.version} + 1`,
 			updatedAt: sql`now()`,
 		})
 		.where(eq(conversations.id, id));
+	await tx.insert(conversationEvents).values({
+		conversationId: id,
+		fromStatus: conv.status,
+		toStatus: result.status,
+		trigger: event,
+		triggeredByUserId: userId,
+	});
+	return result;
 }
 
 export async function recordInboundAt(

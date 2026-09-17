@@ -227,6 +227,29 @@ export const agentRuns = pgTable(
 	],
 );
 
+// Jejak setiap perubahan status percakapan (A-2.1, AC-2.6). Ditulis dalam
+// transaksi yang sama dengan update conversations.status oleh changeStatus().
+export const conversationEvents = pgTable(
+	"conversation_events",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		conversationId: uuid("conversation_id")
+			.notNull()
+			.references(() => conversations.id),
+		fromStatus: conversationStatusEnum("from_status").notNull(),
+		toStatus: conversationStatusEnum("to_status").notNull(),
+		trigger: text("trigger").notNull(),
+		triggeredByUserId: uuid("triggered_by_user_id").references(() => users.id),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		index("conversation_events_conversation_id_idx").on(t.conversationId),
+		index("conversation_events_triggered_by_user_id_idx").on(
+			t.triggeredByUserId,
+		),
+	],
+);
+
 // Payload webhook yang gagal diparse Zod (AC-1.7, B-1.3). Webhook tetap
 // membalas 200 supaya Telegram/Meta tidak retry terus lalu menonaktifkan
 // endpoint-nya; baris di sini yang dipakai untuk pemeriksaan manual.
