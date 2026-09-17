@@ -7,7 +7,8 @@
 		".": "./src/index.ts",
 		"./log": "./src/log.ts",
 		"./redis": "./src/redis.ts",
-		"./testing": "./src/testing.ts"
+		"./testing": "./src/testing.ts",
+		"./fake": "./src/fake/index.ts"
 	},
 	"dependencies": {
 		"@ticko/domain": "workspace:*",
