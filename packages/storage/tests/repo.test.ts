@@ -14,7 +14,13 @@ import {
 	recordInboundAt,
 	updateStatus,
 } from "../src/repo";
-import { contacts, conversations, deadLetters, messages } from "../src/schema";
+import {
+	agentRuns,
+	contacts,
+	conversations,
+	deadLetters,
+	messages,
+} from "../src/schema";
 import { createTestDb, withTestDb } from "../src/testing";
 
 const inbound = (externalMessageId: string, text = "halo"): InboundMessage => ({
@@ -316,6 +322,23 @@ test("insertAgentRun mencatat jejak pemanggilan LLM (AC-3.6)", async () => {
 		});
 
 		expect(typeof runId).toBe("string");
+
+		const rows = await tx
+			.select()
+			.from(agentRuns)
+			.where(eq(agentRuns.id, runId));
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({
+			id: runId,
+			conversationId: conv.id,
+			messageId: inserted.id,
+			replyMessageId: replyId,
+			traceId: "trace-14",
+			status: "succeeded",
+			model: "test-model",
+			prompt: { messages: [] },
+			response: "balasan bot",
+		});
 	});
 });
 
