@@ -19,6 +19,12 @@ jobs:
         options: >-
           --health-cmd "pg_isready -h 127.0.0.1 -U ticko -d ticko"
           --health-interval 2s --health-retries 15
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s --health-retries 15
     env:
       TICKO_DATABASE_URL: postgres://ticko:ticko@127.0.0.1:5432/ticko
     steps:
@@ -27,6 +33,7 @@ jobs:
         with:
           bun-version: 1.4.0
       - run: bun install --frozen-lockfile
+      - run: biome ci --error-on-warnings .
       - run: bun run typecheck
       - run: bun run check:domain-deps
       # Migrasi dari database kosong setiap PR (CONVENTIONS §4).
