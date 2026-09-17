@@ -1,4 +1,5 @@
 import type { ConversationId, ConversationStatus, UserId } from "@ticko/domain";
+import type { Executor } from "../db";
 import type { Contact, Conversation } from "./index";
 
 // Kontrak repo (AB-0.1): antarmuka saja, tanpa implementasi. Dipakai oleh
@@ -32,14 +33,19 @@ export type HandbackResult =
 	| { ok: false; reason: "not_found" | "not_assigned" };
 
 export interface ConversationRepo {
-	get(id: ConversationId): Promise<Conversation | null>;
-	listInbox(filter: InboxFilter): Promise<Page<ConversationSummary>>;
+	get(ex: Executor, id: ConversationId): Promise<Conversation | null>;
+	listInbox(
+		ex: Executor,
+		filter: InboxFilter,
+	): Promise<Page<ConversationSummary>>;
 	claim(
+		ex: Executor,
 		id: ConversationId,
 		userId: UserId,
 		version: number,
 	): Promise<ClaimResult>;
 	handback(
+		ex: Executor,
 		id: ConversationId,
 		userId: UserId,
 		note: string,
@@ -47,9 +53,12 @@ export interface ConversationRepo {
 }
 
 export interface ContactRepo {
-	findOrCreateContact(input: {
-		channel: Contact["channel"];
-		externalId: string;
-		displayName: string | null;
-	}): Promise<Contact>;
+	findOrCreateContact(
+		ex: Executor,
+		input: {
+			channel: Contact["channel"];
+			externalId: string;
+			displayName: string | null;
+		},
+	): Promise<Contact>;
 }
