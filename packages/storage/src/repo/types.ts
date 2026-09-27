@@ -1,24 +1,21 @@
-import type { ConversationId, ConversationStatus, UserId } from "@ticko/domain";
+import type {
+	ConversationId,
+	ConversationStatus,
+	ConversationSummary,
+	Page,
+	UserId,
+} from "@ticko/domain";
 import type { Executor } from "../db";
 import type { Contact, Conversation } from "./index";
 
 // Kontrak repo (AB-0.1): antarmuka saja, tanpa implementasi. Dipakai oleh
 // fake in-memory (A-0.6) dan implementasi Drizzle sungguhan.
 
-export type ConversationSummary = Pick<
-	Conversation,
-	"id" | "channel" | "status" | "controlOwner" | "lastInboundAt"
->;
-
-export interface Page<T> {
-	items: T[];
-	page: number;
-	pageSize: number;
-	total: number;
-}
+// ConversationSummary & Page tinggal di domain (Kontrak 7, dibaca desk).
+export type { ConversationSummary, Page };
 
 export interface InboxFilter {
-	status?: ConversationStatus;
+	status?: ConversationStatus | undefined;
 	assignedUserId?: UserId;
 	page?: number;
 	pageSize?: number;

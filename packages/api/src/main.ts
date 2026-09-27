@@ -6,7 +6,9 @@ import {
 	deleteSession,
 	findSessionUser,
 	findUserByEmail,
+	getConversationDetail,
 	insertDeadLetter,
+	listInbox,
 	ping,
 } from "@ticko/storage";
 import { createLogger } from "@ticko/storage/log";
@@ -60,6 +62,10 @@ const app = createApp({
 			createSession(db, { userId, ttlMs: SESSION_TTL_MS }),
 		findSessionUser: (token) => findSessionUser(db, token),
 		deleteSession: (token) => deleteSession(db, token),
+	},
+	conversations: {
+		list: (filter) => listInbox(db, filter),
+		get: (id) => getConversationDetail(db, id),
 	},
 });
 

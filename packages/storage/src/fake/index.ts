@@ -62,6 +62,9 @@ export class InMemoryConversationRepo implements ConversationRepo {
 				channel: c.channel,
 				status: c.status,
 				controlOwner: c.controlOwner,
+				// Fake tidak menyimpan kontak/pesan; field turunan join dikosongkan.
+				contactName: null,
+				lastMessage: null,
 				lastInboundAt: c.lastInboundAt,
 			}),
 		);

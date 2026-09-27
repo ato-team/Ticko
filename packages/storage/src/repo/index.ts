@@ -3,6 +3,7 @@ import {
 	Channel,
 	ContactId,
 	ControlOwner,
+	type ConversationDetail,
 	type ConversationEvent,
 	ConversationId,
 	ConversationStatus as ConversationStatusSchema,
@@ -14,7 +15,7 @@ import {
 	UserId,
 	UserRole,
 } from "@ticko/domain";
-import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { Executor, Tx } from "../db";
 import {
@@ -30,6 +31,8 @@ import {
 } from "../schema";
 
 export * from "./types";
+
+import type { ConversationSummary, InboxFilter, Page } from "./types";
 
 // Baris database diparse ke tipe ber-brand lewat Zod, bukan di-`as`.
 const iso = z.date().transform((d) => d.toISOString());
@@ -129,6 +132,144 @@ export async function getConversation(
 	const q = ex.select().from(conversations).where(eq(conversations.id, id));
 	const [row] = await (opts.forUpdate ? q.for("update") : q);
 	return row ? Conversation.parse(row) : null;
+}
+
+// --- Inbox desk (B-2.1, Kontrak 7) ----------------------------------------------
+
+const SummaryRow = z.object({
+	id: ConversationId,
+	channel: Channel,
+	status: ConversationStatusSchema,
+	controlOwner: ControlOwner,
+	contactName: z.string().nullable(),
+	lastInboundAt: iso.nullable(),
+});
+
+const LastMessageRow = z.object({
+	conversationId: ConversationId,
+	senderType: SenderType,
+	content: z.string().nullable(),
+	sentAt: iso,
+});
+
+// Batas pesan di detail; riwayat lebih panjang butuh pagination sendiri.
+export const DETAIL_MESSAGE_LIMIT = 200;
+
+/**
+ * Daftar inbox: tanpa filter status → semua kecuali `closed`. Urut dari yang
+ * paling lama menunggu (`last_inbound_at` tertua); urgensi menyusul bersama
+ * kolomnya di Sprint 3. Filter `assignedUserId` belum ada kolomnya (claim,
+ * A-3.1), jadi sengaja tidak diterima di sini.
+ */
+export async function listInbox(
+	ex: Executor,
+	filter: Omit<InboxFilter, "assignedUserId">,
+): Promise<Page<ConversationSummary>> {
+	const page = filter.page ?? 1;
+	const pageSize = filter.pageSize ?? 20;
+	const where = filter.status
+		? eq(conversations.status, filter.status)
+		: ne(conversations.status, "closed");
+
+	const [counted] = await ex
+		.select({ total: count() })
+		.from(conversations)
+		.where(where);
+	const rows = await ex
+		.select({
+			id: conversations.id,
+			channel: conversations.channel,
+			status: conversations.status,
+			controlOwner: conversations.controlOwner,
+			contactName: contacts.displayName,
+			lastInboundAt: conversations.lastInboundAt,
+		})
+		.from(conversations)
+		.innerJoin(contacts, eq(contacts.id, conversations.contactId))
+		.where(where)
+		.orderBy(
+			sql`${conversations.lastInboundAt} ASC NULLS LAST`,
+			conversations.id,
+		)
+		.limit(pageSize)
+		.offset((page - 1) * pageSize);
+	const summaries = rows.map((r) => SummaryRow.parse(r));
+
+	const ids = summaries.map((r) => r.id);
+	const lastRows =
+		ids.length === 0
+			? []
+			: await ex
+					.selectDistinctOn([messages.conversationId], {
+						conversationId: messages.conversationId,
+						senderType: messages.senderType,
+						content: messages.content,
+						sentAt: messages.sentAt,
+					})
+					.from(messages)
+					.where(inArray(messages.conversationId, ids))
+					.orderBy(
+						messages.conversationId,
+						desc(messages.createdAt),
+						desc(messages.id),
+					);
+	const last = new Map(
+		lastRows.map((r) => {
+			const { conversationId, ...msg } = LastMessageRow.parse(r);
+			return [conversationId, msg];
+		}),
+	);
+
+	return {
+		items: summaries.map((s) => ({
+			...s,
+			lastMessage: last.get(s.id) ?? null,
+		})),
+		page,
+		pageSize,
+		total: z.number().int().parse(counted?.total),
+	};
+}
+
+export async function getConversationDetail(
+	ex: Executor,
+	id: ConversationId,
+): Promise<ConversationDetail | null> {
+	const [row] = await ex
+		.select({
+			id: conversations.id,
+			channel: conversations.channel,
+			status: conversations.status,
+			controlOwner: conversations.controlOwner,
+			contactName: contacts.displayName,
+			lastInboundAt: conversations.lastInboundAt,
+			version: conversations.version,
+		})
+		.from(conversations)
+		.innerJoin(contacts, eq(contacts.id, conversations.contactId))
+		.where(eq(conversations.id, id));
+	if (!row) return null;
+	const summary = SummaryRow.extend({ version: z.number().int() }).parse(row);
+	const msgs = (await listRecentMessages(ex, id, DETAIL_MESSAGE_LIMIT)).map(
+		(m) => ({
+			id: m.id,
+			senderType: m.senderType,
+			content: m.content,
+			sentAt: m.sentAt,
+		}),
+	);
+	const tail = msgs.at(-1);
+	return {
+		...summary,
+		lastMessage: tail
+			? {
+					senderType: tail.senderType,
+					content: tail.content,
+					sentAt: tail.sentAt,
+				}
+			: null,
+		messages: msgs,
+	};
 }
 
 /**
