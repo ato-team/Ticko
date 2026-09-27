@@ -8,7 +8,7 @@ import {
 	type LlmRequest,
 	type LlmResponse,
 } from "@ticko/agent";
-import type { AgentConfig } from "@ticko/domain";
+import type { AgentConfig, DeskEvent, MessageId } from "@ticko/domain";
 import {
 	type Db,
 	type Executor,
@@ -34,6 +34,8 @@ export interface AgentDeps {
 		| "outputUsdPerMtok"
 	>;
 	systemPrompt: string;
+	/** Dipanggil setelah commit; tidak pernah melempar (publishDeskEvent). */
+	notifyDesk: (event: DeskEvent) => Promise<void>;
 }
 
 /**
@@ -100,56 +102,67 @@ export function agentRunHandler(deps: AgentDeps): Handlers["agent_run"] {
 		}
 
 		const costEstimate = estimateCostUsd(deps.config, res);
-		return deps.db.transaction(async (tx): Promise<JobOutcome> => {
-			const locked = await getConversation(tx, conversationId, {
-				forUpdate: true,
-			});
-			if (locked?.controlOwner !== "bot") {
+		const result = await deps.db.transaction(
+			async (tx): Promise<{ outcome: JobOutcome; replyId?: MessageId }> => {
+				const locked = await getConversation(tx, conversationId, {
+					forUpdate: true,
+				});
+				if (locked?.controlOwner !== "bot") {
+					await recordRun(
+						tx,
+						deps.config.model,
+						{ conversationId, messageId, traceId, prompt },
+						{ status: "discarded", res, costEstimate },
+					);
+					return {
+						outcome: cancelled(
+							"control_owner berubah selama LLM berjalan, jawaban dibuang",
+						),
+					};
+				}
+
+				const replyId = await insertOutbound(tx, {
+					conversationId,
+					senderType: "bot",
+					content: res.text,
+				});
 				await recordRun(
 					tx,
 					deps.config.model,
 					{ conversationId, messageId, traceId, prompt },
-					{ status: "discarded", res, costEstimate },
+					{ status: "succeeded", res, costEstimate, replyMessageId: replyId },
 				);
-				return cancelled(
-					"control_owner berubah selama LLM berjalan, jawaban dibuang",
+				const outboundId = await insertOutboundQueue(tx, {
+					conversationId,
+					messageId: replyId,
+					channel: locked.channel,
+					recipient: locked.externalConversationId,
+					text: res.text,
+				});
+				await enqueue(tx, {
+					type: "send_message",
+					conversationId,
+					payload: { outboundId, traceId },
+				});
+				log.info(
+					{
+						input_tokens: res.inputTokens,
+						output_tokens: res.outputTokens,
+						latency_ms: res.latencyMs,
+						cost_usd: costEstimate,
+					},
+					"jawaban agent dijadwalkan",
 				);
-			}
-
-			const replyId = await insertOutbound(tx, {
+				return { outcome: { status: "done" }, replyId };
+			},
+		);
+		if (result.replyId)
+			await deps.notifyDesk({
+				type: "message_received",
 				conversationId,
-				senderType: "bot",
-				content: res.text,
+				messageId: result.replyId,
 			});
-			await recordRun(
-				tx,
-				deps.config.model,
-				{ conversationId, messageId, traceId, prompt },
-				{ status: "succeeded", res, costEstimate, replyMessageId: replyId },
-			);
-			const outboundId = await insertOutboundQueue(tx, {
-				conversationId,
-				messageId: replyId,
-				channel: locked.channel,
-				recipient: locked.externalConversationId,
-				text: res.text,
-			});
-			await enqueue(tx, {
-				type: "send_message",
-				conversationId,
-				payload: { outboundId, traceId },
-			});
-			log.info(
-				{
-					input_tokens: res.inputTokens,
-					output_tokens: res.outputTokens,
-					latency_ms: res.latencyMs,
-					cost_usd: costEstimate,
-				},
-				"jawaban agent dijadwalkan",
-			);
-			return { status: "done" };
-		});
+		return result.outcome;
 	};
 }
 

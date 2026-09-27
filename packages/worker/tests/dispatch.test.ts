@@ -3,7 +3,11 @@ import type { LlmClient } from "@ticko/agent";
 import { FakeLlm } from "@ticko/agent/fake";
 import { fromAdapters } from "@ticko/channels";
 import { MockChannelAdapter } from "@ticko/channels/fake";
-import { ConversationId, type InboundMessage } from "@ticko/domain";
+import {
+	ConversationId,
+	type DeskEvent,
+	type InboundMessage,
+} from "@ticko/domain";
 import {
 	changeStatus,
 	getConversation,
@@ -62,12 +66,16 @@ function worker(
 	llm: LlmClient = FakeLlm.withText("Halo! Ada yang bisa kami bantu?"),
 ) {
 	const adapter = new MockChannelAdapter("telegram");
+	const desk: DeskEvent[] = [];
 	const handlers = {
 		agent_run: agentRunHandler({
 			db: t.db,
 			llm,
 			config,
 			systemPrompt: "Kamu CS.",
+			notifyDesk: async (e) => {
+				desk.push(e);
+			},
 		}),
 		send_message: sendMessageHandler({
 			db: t.db,
@@ -79,7 +87,7 @@ function worker(
 			await runJob(t.db, job, handlers, log);
 		}
 	};
-	return { adapter, drain, llm };
+	return { adapter, drain, llm, desk };
 }
 
 test("pesan baru → bot_active, tersimpan, agent_run dijadwalkan", async () => {
@@ -129,6 +137,13 @@ test("A-2.4: pertanyaan → dijawab AI, terkirim, agent_runs terisi", async () =
 		},
 	});
 	expect(run?.promptTokens).toBeGreaterThan(0);
+	// Balasan bot diumumkan ke desk setelah commit (B-2.4).
+	expect(w.desk).toHaveLength(1);
+	expect(w.desk[0]).toMatchObject({
+		type: "message_received",
+		conversationId: r.conversationId,
+		messageId: msgs[1]?.id,
+	});
 	expect(run?.completionTokens).toBeGreaterThan(0);
 	expect(run?.costEstimate).toBeGreaterThan(0);
 });
@@ -272,6 +287,7 @@ test("HANDOFF: control_owner berubah SELAMA LLM berjalan → jawaban dibuang, ti
 	await w.drain();
 
 	expect(w.adapter.sent).toHaveLength(0);
+	expect(w.desk).toEqual([]);
 	const msgs = await listRecentMessages(t.db, r.conversationId, 10);
 	expect(msgs.filter((m) => m.senderType === "bot")).toHaveLength(0);
 	const [run] = await t.db.select().from(schema.agentRuns);

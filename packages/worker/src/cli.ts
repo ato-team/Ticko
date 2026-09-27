@@ -124,6 +124,8 @@ export function createCli(deps: CliDeps) {
 			llm: deps.llm,
 			config: deps.config,
 			systemPrompt: deps.systemPrompt,
+			// REPL tidak punya agent desk yang mendengarkan.
+			notifyDesk: async () => {},
 		}),
 		send_message: sendMessageHandler({
 			db,

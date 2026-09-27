@@ -6,7 +6,7 @@ import { createDeskSubscriber } from "../src/redis";
 const url = new Secret(process.env.TICKO_REDIS_URL ?? "redis://127.0.0.1:6379");
 const lines: string[] = [];
 const log = createLogger("warn", { write: (l: string) => lines.push(l) });
-const sub = await createDeskSubscriber(url, log);
+const sub = createDeskSubscriber(url, log);
 afterAll(() => sub.close());
 
 const conversationId = ConversationId.parse(
@@ -17,12 +17,12 @@ const conversationId = ConversationId.parse(
 async function publishFromOtherProcess(events: unknown[]) {
 	const script = `
 		import Redis from "ioredis";
-		import { Secret } from "@ticko/domain";
+		import { createLogger } from "@ticko/storage/log";
 		import { publishDeskEvent } from "@ticko/storage/redis";
 		const r = new Redis(process.env.TICKO_REDIS_URL);
 		for (const e of ${JSON.stringify(events)}) {
 			if (e === "rusak") await r.publish("desk:events", "{bukan json");
-			else await publishDeskEvent(r, e);
+			else await publishDeskEvent(r, e, createLogger("error"));
 		}
 		r.disconnect();
 	`;
