@@ -3,7 +3,7 @@ import { Secret } from "@ticko/domain";
 import { createLogger } from "@ticko/storage/log";
 import { createApp } from "../src/app";
 import type { AuthDeps } from "../src/auth";
-import { noConversations } from "./support";
+import { noConversations, noDesk } from "./support";
 
 // Test di file ini tidak pernah memanggil /auth atau /me.
 const fakeAuth: AuthDeps = {
@@ -38,6 +38,7 @@ test("GET /health 200 dengan status database dan redis", async () => {
 		webhooks: null,
 		auth: fakeAuth,
 		conversations: noConversations,
+		desk: noDesk,
 	});
 	const res = await app.request("/api/health");
 	expect(res.status).toBe(200);
@@ -57,6 +58,7 @@ test("GET /health 503 saat salah satu dependensi mati", async () => {
 		webhooks: null,
 		auth: fakeAuth,
 		conversations: noConversations,
+		desk: noDesk,
 	});
 	const res = await app.request("/api/health");
 	expect(res.status).toBe(503);
@@ -72,6 +74,7 @@ test("log request berupa JSON dengan trace_id", async () => {
 		webhooks: null,
 		auth: fakeAuth,
 		conversations: noConversations,
+		desk: noDesk,
 	});
 	await app.request("/api/health");
 	await app.request("/api/health");

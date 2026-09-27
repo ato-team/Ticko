@@ -14,7 +14,7 @@ import { createApp } from "../src/app";
 import type { AuthDeps } from "../src/auth";
 import { SESSION_TTL_MS } from "../src/auth";
 import { hashPassword } from "../src/lib/password";
-import { noConversations } from "./support";
+import { noConversations, noDesk } from "./support";
 
 function authDepsFor(tx: Tx): AuthDeps {
 	return {
@@ -35,6 +35,7 @@ function appFor(tx: Tx, log = createLogger("error")) {
 		webhooks: null,
 		auth: authDepsFor(tx),
 		conversations: noConversations,
+		desk: noDesk,
 	});
 }
 

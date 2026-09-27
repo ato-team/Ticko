@@ -3,7 +3,7 @@ import { type Channel, type InboundMessage, Secret } from "@ticko/domain";
 import { createLogger } from "@ticko/storage/log";
 import { createApp } from "../src/app";
 import type { AuthDeps } from "../src/auth";
-import { noConversations } from "./support";
+import { noConversations, noDesk } from "./support";
 
 type DeadLetter = { channel: Channel; payload: string; error: string };
 
@@ -33,6 +33,7 @@ function app(
 		},
 		auth: fakeAuth,
 		conversations: noConversations,
+		desk: noDesk,
 	});
 }
 

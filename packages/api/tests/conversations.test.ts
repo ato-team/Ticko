@@ -17,6 +17,7 @@ import { z } from "zod";
 import { createApp } from "../src/app";
 import { SESSION_TTL_MS } from "../src/auth";
 import { hashPassword } from "../src/lib/password";
+import { noDesk } from "./support";
 
 function appFor(tx: Tx) {
 	return createApp({
@@ -36,6 +37,7 @@ function appFor(tx: Tx) {
 			list: (filter) => listInbox(tx, filter),
 			get: (id) => getConversationDetail(tx, id),
 		},
+		desk: noDesk,
 	});
 }
 
