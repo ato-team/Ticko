@@ -68,7 +68,9 @@ export type ClaimedJob = {
 		id: string;
 		type: T;
 		payload: JobPayload<T>;
+		// Kegagalan sebelum klaim ini; percobaan ini terakhir bila attempts >= maxAttempts.
 		attempts: number;
+		maxAttempts: number;
 	};
 }[JobType];
 
@@ -77,6 +79,7 @@ const ClaimedRow = z.object({
 	job_type: z.string(),
 	payload: z.unknown(),
 	attempts: z.number(),
+	max_attempts: z.number(),
 });
 
 /** Mengambil satu job yang jatuh tempo, atau null bila antrian kosong. */
@@ -97,7 +100,7 @@ export async function claim(
 				FOR UPDATE SKIP LOCKED
 				LIMIT 1
 			)
-			RETURNING id, job_type, payload, attempts
+			RETURNING id, job_type, payload, attempts, max_attempts
 		`);
 		const [raw] = rows;
 		if (raw === undefined) return null;
@@ -124,7 +127,11 @@ function parseJob(row: z.infer<typeof ClaimedRow>): ClaimedJob | null {
 	const parsedType = JobType.safeParse(row.job_type);
 	if (!parsedType.success) return null;
 	const type = parsedType.data;
-	const base = { id: row.id, attempts: row.attempts };
+	const base = {
+		id: row.id,
+		attempts: row.attempts,
+		maxAttempts: row.max_attempts,
+	};
 	switch (type) {
 		case "send_message": {
 			const p = JobPayloads.send_message.safeParse(row.payload);

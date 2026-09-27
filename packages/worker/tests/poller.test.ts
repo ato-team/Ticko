@@ -1,5 +1,4 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { ConversationId } from "@ticko/domain";
 import { schema } from "@ticko/storage";
 import { createLogger } from "@ticko/storage/log";
 import { createTestDb } from "@ticko/storage/testing";
@@ -14,9 +13,6 @@ beforeAll(async () => {
 afterAll(() => t.drop());
 
 const log = createLogger("error");
-const conversationId = ConversationId.parse(
-	"0b8e7a52-4c1f-4d2e-9a6b-3f5c8d7e1a20",
-);
 const status = async (id: string) =>
 	(
 		await t.db
@@ -33,7 +29,7 @@ const handlers = (send: Handlers["send_message"]): Handlers => ({
 async function enqueueAndRun(h: Handlers) {
 	const id = await enqueue(t.db, {
 		type: "send_message",
-		payload: { conversationId, text: "x", traceId: "trace" },
+		payload: { outboundId: "x", traceId: "trace" },
 	});
 	const job = await claim(t.db, "w");
 	if (!job) throw new Error("job tidak terambil");
@@ -65,7 +61,7 @@ test("startPoller mengambil job dan berhenti dengan rapi", async () => {
 	const seen: string[] = [];
 	const id = await enqueue(t.db, {
 		type: "send_message",
-		payload: { conversationId, text: "dari poller", traceId: "trace" },
+		payload: { outboundId: "dari poller", traceId: "trace" },
 	});
 	const poller = startPoller({
 		db: t.db,
@@ -73,7 +69,7 @@ test("startPoller mengambil job dan berhenti dengan rapi", async () => {
 		log,
 		intervalMs: 20,
 		handlers: handlers(async (job) => {
-			seen.push(job.payload.text);
+			seen.push(job.payload.outboundId);
 			return { status: "done" };
 		}),
 	});

@@ -17,7 +17,7 @@ import { receiveInbound } from "../src/dispatch";
 import { agentRunHandler } from "../src/handlers/agent";
 import { sendMessageHandler } from "../src/handlers/send";
 import { runJob } from "../src/poller";
-import { claim } from "../src/queue";
+import { claim, enqueue } from "../src/queue";
 
 let t: Awaited<ReturnType<typeof createTestDb>>;
 beforeAll(async () => {
@@ -27,6 +27,7 @@ afterAll(() => t.drop());
 beforeEach(async () => {
 	await t.db.delete(schema.jobs);
 	await t.db.delete(schema.agentRuns);
+	await t.db.delete(schema.outboundQueue);
 	await t.db.delete(schema.messages);
 	await t.db.delete(schema.conversationEvents);
 	await t.db.delete(schema.conversations);
@@ -200,6 +201,48 @@ test("send_message: gagal sementara → retry; penerima memblokir bot → cancel
 		status: "cancelled",
 		lastError: "bot diblokir",
 	});
+});
+
+test("A-2.6: gagal kirim dicoba ulang 3 kali lalu jadi dead letter", async () => {
+	const w = worker();
+	await receiveInbound(t.db, inbound("halo"), "t");
+	for (let i = 0; i < 4; i++) {
+		w.adapter.failNext = true;
+		w.adapter.failWith = { kind: "network", cause: "putus" };
+		// Lewati jeda backoff 1/4/16 detik.
+		await t.db.update(schema.jobs).set({ runAfter: new Date() });
+		await w.drain();
+	}
+	const [job] = await t.db
+		.select()
+		.from(schema.jobs)
+		.where(eq(schema.jobs.jobType, "send_message"));
+	expect(job).toMatchObject({ status: "failed", attempts: 4 });
+	const [out] = await t.db.select().from(schema.outboundQueue);
+	expect(out).toMatchObject({
+		status: "dead",
+		attempts: 4,
+		lastError: "network",
+	});
+	expect(w.adapter.sent).toHaveLength(0);
+});
+
+test("A-2.6: worker menjalankan pesan yang sama dua kali → terkirim sekali", async () => {
+	const w = worker();
+	await receiveInbound(t.db, inbound("halo"), "t");
+	await w.drain();
+	const [out] = await t.db.select().from(schema.outboundQueue);
+	if (!out) throw new Error("outbound_queue kosong");
+	// Redelivery: job kedua untuk baris outbound yang sama.
+	await enqueue(t.db, {
+		type: "send_message",
+		payload: { outboundId: out.id, traceId: "t" },
+	});
+	await w.drain();
+	expect(w.adapter.sent).toHaveLength(1);
+	const [after] = await t.db.select().from(schema.outboundQueue);
+	expect(after).toMatchObject({ status: "sent", attempts: 1 });
+	expect(after?.externalMessageId).not.toBeNull();
 });
 
 test("HANDOFF: control_owner berubah SELAMA LLM berjalan → jawaban dibuang, tidak terkirim", async () => {

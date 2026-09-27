@@ -15,6 +15,7 @@ import {
 	getConversation,
 	insertAgentRun,
 	insertOutbound,
+	insertOutboundQueue,
 	listRecentMessages,
 } from "@ticko/storage";
 import type { Handlers, JobOutcome } from "../poller";
@@ -126,10 +127,17 @@ export function agentRunHandler(deps: AgentDeps): Handlers["agent_run"] {
 				{ conversationId, messageId, traceId, prompt },
 				{ status: "succeeded", res, costEstimate, replyMessageId: replyId },
 			);
+			const outboundId = await insertOutboundQueue(tx, {
+				conversationId,
+				messageId: replyId,
+				channel: locked.channel,
+				recipient: locked.externalConversationId,
+				text: res.text,
+			});
 			await enqueue(tx, {
 				type: "send_message",
 				conversationId,
-				payload: { conversationId, text: res.text, traceId },
+				payload: { outboundId, traceId },
 			});
 			log.info(
 				{

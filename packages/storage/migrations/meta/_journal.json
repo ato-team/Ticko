@@ -64,6 +64,13 @@
       "when": 1789656964506,
       "tag": "0008_conversation_events",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790523397634,
+      "tag": "0009_outbound_queue",
+      "breakpoints": true
     }
   ]
 }

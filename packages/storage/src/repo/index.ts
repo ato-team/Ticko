@@ -24,6 +24,7 @@ import {
 	conversations,
 	deadLetters,
 	messages,
+	outboundQueue,
 	sessions,
 	users,
 } from "../schema";
@@ -269,6 +270,95 @@ export async function insertAgentRun(
 		.values(run)
 		.returning({ id: agentRuns.id });
 	return z.string().parse(row?.id);
+}
+
+// --- Outbound queue (A-2.6) ----------------------------------------------------
+
+export const OutboundQueueStatus = z.enum([
+	"pending",
+	"sent",
+	"failed",
+	"dead",
+]);
+export type OutboundQueueStatus = z.infer<typeof OutboundQueueStatus>;
+
+export const OutboundQueueRow = z.object({
+	id: z.string(),
+	conversationId: ConversationId,
+	messageId: MessageId,
+	channel: Channel,
+	recipient: z.string(),
+	text: z.string(),
+	status: OutboundQueueStatus,
+	attempts: z.number().int(),
+	lastError: z.string().nullable(),
+	externalMessageId: z.string().nullable(),
+});
+export type OutboundQueueRow = z.infer<typeof OutboundQueueRow>;
+
+/** Ditulis dalam transaksi yang sama dengan `insertOutbound` (A-2.6). */
+export async function insertOutboundQueue(
+	ex: Executor,
+	input: {
+		conversationId: ConversationId;
+		messageId: MessageId;
+		channel: Channel;
+		recipient: string;
+		text: string;
+	},
+): Promise<string> {
+	const [row] = await ex
+		.insert(outboundQueue)
+		.values(input)
+		.returning({ id: outboundQueue.id });
+	return z.string().parse(row?.id);
+}
+
+export async function getOutboundQueue(
+	ex: Executor,
+	id: string,
+	opts: { forUpdate?: boolean } = {},
+): Promise<OutboundQueueRow | null> {
+	const q = ex.select().from(outboundQueue).where(eq(outboundQueue.id, id));
+	const [row] = await (opts.forUpdate ? q.for("update") : q);
+	return row ? OutboundQueueRow.parse(row) : null;
+}
+
+/** Sukses kirim: status `sent`, `attempts` naik satu (percobaan yang berhasil ini). */
+export async function markOutboundSent(
+	ex: Executor,
+	id: string,
+	externalMessageId: string,
+): Promise<void> {
+	await ex
+		.update(outboundQueue)
+		.set({
+			status: "sent",
+			externalMessageId,
+			attempts: sql`${outboundQueue.attempts} + 1`,
+			updatedAt: sql`now()`,
+		})
+		.where(eq(outboundQueue.id, id));
+}
+
+/**
+ * Gagal kirim: `attempts` naik, `lastError` dicatat. `dead: true` = terminal
+ * (retry job habis atau error permanen) — baris ini jadi dead letter-nya.
+ */
+export async function markOutboundFailed(
+	ex: Executor,
+	id: string,
+	input: { error: string; dead: boolean },
+): Promise<void> {
+	await ex
+		.update(outboundQueue)
+		.set({
+			status: input.dead ? "dead" : "failed",
+			attempts: sql`${outboundQueue.attempts} + 1`,
+			lastError: input.error.slice(0, 2000),
+			updatedAt: sql`now()`,
+		})
+		.where(eq(outboundQueue.id, id));
 }
 
 // --- Dead letter ---------------------------------------------------------------

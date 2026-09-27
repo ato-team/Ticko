@@ -25,7 +25,7 @@ beforeEach(async () => {
 const conversationId = ConversationId.parse(
 	"0b8e7a52-4c1f-4d2e-9a6b-3f5c8d7e1a20",
 );
-const payload = (text: string) => ({ conversationId, text, traceId: "trace" });
+const payload = (outboundId: string) => ({ outboundId, traceId: "trace" });
 
 async function row(id: string) {
 	const [r] = await t.db
@@ -134,7 +134,7 @@ test("enqueueWithDedupe menimpa run_after, tidak membuat duplikat", async () => 
 test("payload tidak valid ditandai failed saat diambil, bukan di-as", async () => {
 	const [bad] = await t.db
 		.insert(jobs)
-		.values({ jobType: "send_message", payload: { text: 42 } })
+		.values({ jobType: "send_message", payload: { outboundId: 42 } })
 		.returning({ id: jobs.id });
 	const good = await enqueue(t.db, {
 		type: "send_message",
@@ -143,7 +143,7 @@ test("payload tidak valid ditandai failed saat diambil, bukan di-as", async () =
 
 	const job = await claim(t.db, "w");
 	expect(job?.id).toBe(good);
-	expect(job?.type === "send_message" && job.payload.text).toBe("ok");
+	expect(job?.type === "send_message" && job.payload.outboundId).toBe("ok");
 	expect((await row(bad?.id ?? ""))?.status).toBe("failed");
 	if (job) await complete(t.db, job.id);
 	expect((await row(good))?.status).toBe("done");
