@@ -1,7 +1,13 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
 	"vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-	"files": { "includes": ["**", "!packages/storage/migrations"] },
+	"files": {
+		"includes": [
+			"**",
+			"!packages/storage/migrations",
+			"!docs/superpowers/specs/*-mockups"
+		]
+	},
 	"linter": {
 		"rules": {
 			"preset": "recommended",
