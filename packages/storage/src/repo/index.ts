@@ -3,28 +3,36 @@ import {
 	Channel,
 	ContactId,
 	ControlOwner,
+	type ConversationDetail,
+	type ConversationEvent,
 	ConversationId,
-	type ConversationStatus,
 	ConversationStatus as ConversationStatusSchema,
-	controlOwnerFor,
 	type InboundMessage,
 	MessageId,
 	SenderType,
+	type TransitionResult,
+	transition,
 	UserId,
 	UserRole,
 } from "@ticko/domain";
-import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { Executor } from "./db";
+import type { Executor, Tx } from "../db";
 import {
 	agentRuns,
 	contacts,
+	conversationEvents,
 	conversations,
 	deadLetters,
 	messages,
+	outboundQueue,
 	sessions,
 	users,
-} from "./schema";
+} from "../schema";
+
+export * from "./types";
+
+import type { ConversationSummary, InboxFilter, Page } from "./types";
 
 // Baris database diparse ke tipe ber-brand lewat Zod, bukan di-`as`.
 const iso = z.date().transform((d) => d.toISOString());
@@ -126,21 +134,187 @@ export async function getConversation(
 	return row ? Conversation.parse(row) : null;
 }
 
-/** control_owner selalu diturunkan dari status; tidak bisa disetel terpisah. */
-export async function updateStatus(
+// --- Inbox desk (B-2.1, Kontrak 7) ----------------------------------------------
+
+const SummaryRow = z.object({
+	id: ConversationId,
+	channel: Channel,
+	status: ConversationStatusSchema,
+	controlOwner: ControlOwner,
+	contactName: z.string().nullable(),
+	lastInboundAt: iso.nullable(),
+});
+
+const LastMessageRow = z.object({
+	conversationId: ConversationId,
+	senderType: SenderType,
+	content: z.string().nullable(),
+	sentAt: iso,
+});
+
+// Batas pesan di detail; riwayat lebih panjang butuh pagination sendiri.
+export const DETAIL_MESSAGE_LIMIT = 200;
+
+/**
+ * Daftar inbox: tanpa filter status → semua kecuali `closed`. Urut dari yang
+ * paling lama menunggu (`last_inbound_at` tertua); urgensi menyusul bersama
+ * kolomnya di Sprint 3. Filter `assignedUserId` belum ada kolomnya (claim,
+ * A-3.1), jadi sengaja tidak diterima di sini.
+ */
+export async function listInbox(
+	ex: Executor,
+	filter: Omit<InboxFilter, "assignedUserId">,
+): Promise<Page<ConversationSummary>> {
+	const page = filter.page ?? 1;
+	const pageSize = filter.pageSize ?? 20;
+	const where = filter.status
+		? eq(conversations.status, filter.status)
+		: ne(conversations.status, "closed");
+
+	const [counted] = await ex
+		.select({ total: count() })
+		.from(conversations)
+		.where(where);
+	const rows = await ex
+		.select({
+			id: conversations.id,
+			channel: conversations.channel,
+			status: conversations.status,
+			controlOwner: conversations.controlOwner,
+			contactName: contacts.displayName,
+			lastInboundAt: conversations.lastInboundAt,
+		})
+		.from(conversations)
+		.innerJoin(contacts, eq(contacts.id, conversations.contactId))
+		.where(where)
+		.orderBy(
+			sql`${conversations.lastInboundAt} ASC NULLS LAST`,
+			conversations.id,
+		)
+		.limit(pageSize)
+		.offset((page - 1) * pageSize);
+	const summaries = rows.map((r) => SummaryRow.parse(r));
+
+	const ids = summaries.map((r) => r.id);
+	const lastRows =
+		ids.length === 0
+			? []
+			: await ex
+					.selectDistinctOn([messages.conversationId], {
+						conversationId: messages.conversationId,
+						senderType: messages.senderType,
+						content: messages.content,
+						sentAt: messages.sentAt,
+					})
+					.from(messages)
+					.where(inArray(messages.conversationId, ids))
+					.orderBy(
+						messages.conversationId,
+						desc(messages.createdAt),
+						desc(messages.id),
+					);
+	const last = new Map(
+		lastRows.map((r) => {
+			const { conversationId, ...msg } = LastMessageRow.parse(r);
+			return [conversationId, msg];
+		}),
+	);
+
+	return {
+		items: summaries.map((s) => ({
+			...s,
+			lastMessage: last.get(s.id) ?? null,
+		})),
+		page,
+		pageSize,
+		total: z.number().int().parse(counted?.total),
+	};
+}
+
+export async function getConversationDetail(
 	ex: Executor,
 	id: ConversationId,
-	status: ConversationStatus,
-): Promise<void> {
-	await ex
+): Promise<ConversationDetail | null> {
+	const [row] = await ex
+		.select({
+			id: conversations.id,
+			channel: conversations.channel,
+			status: conversations.status,
+			controlOwner: conversations.controlOwner,
+			contactName: contacts.displayName,
+			lastInboundAt: conversations.lastInboundAt,
+			version: conversations.version,
+		})
+		.from(conversations)
+		.innerJoin(contacts, eq(contacts.id, conversations.contactId))
+		.where(eq(conversations.id, id));
+	if (!row) return null;
+	const summary = SummaryRow.extend({ version: z.number().int() }).parse(row);
+	const msgs = (await listRecentMessages(ex, id, DETAIL_MESSAGE_LIMIT)).map(
+		(m) => ({
+			id: m.id,
+			senderType: m.senderType,
+			content: m.content,
+			sentAt: m.sentAt,
+		}),
+	);
+	const tail = msgs.at(-1);
+	return {
+		...summary,
+		lastMessage: tail
+			? {
+					senderType: tail.senderType,
+					content: tail.content,
+					sentAt: tail.sentAt,
+				}
+			: null,
+		messages: msgs,
+	};
+}
+
+/**
+ * transition() + tulis DB + catat event, satu transaksi (A-2.1, AC-2.6).
+ * Mengunci ulang baris (sudah dikunci pemanggil dalam tx yang sama, jadi ini
+ * tidak menunggu) supaya fungsi ini berdiri sendiri tanpa status lama sebagai
+ * parameter terpisah. Ditolak → tidak menulis apa pun. Status tidak berubah
+ * (mis. message_received di status yang sama) → tidak menulis apa pun juga,
+ * event log hanya untuk perubahan sungguhan.
+ */
+export async function changeStatus(
+	tx: Tx,
+	{
+		id,
+		event,
+		userId,
+	}: { id: ConversationId; event: ConversationEvent; userId?: UserId },
+): Promise<TransitionResult> {
+	const conv = await getConversation(tx, id, { forUpdate: true });
+	if (!conv) {
+		// Baris hilang di tengah transaksi berarti bug pemanggil, bukan kasus
+		// yang punya arti domain — biarkan meledak.
+		throw new Error(`percakapan ${id} hilang saat changeStatus`);
+	}
+	const result = transition(conv.status, event);
+	if (!result.ok) return result;
+	if (result.status === conv.status) return result;
+
+	await tx
 		.update(conversations)
 		.set({
-			status,
-			controlOwner: controlOwnerFor(status),
+			status: result.status,
+			controlOwner: result.controlOwner,
 			version: sql`${conversations.version} + 1`,
 			updatedAt: sql`now()`,
 		})
 		.where(eq(conversations.id, id));
+	await tx.insert(conversationEvents).values({
+		conversationId: id,
+		fromStatus: conv.status,
+		toStatus: result.status,
+		trigger: event,
+		triggeredByUserId: userId,
+	});
+	return result;
 }
 
 export async function recordInboundAt(
@@ -237,6 +411,95 @@ export async function insertAgentRun(
 		.values(run)
 		.returning({ id: agentRuns.id });
 	return z.string().parse(row?.id);
+}
+
+// --- Outbound queue (A-2.6) ----------------------------------------------------
+
+export const OutboundQueueStatus = z.enum([
+	"pending",
+	"sent",
+	"failed",
+	"dead",
+]);
+export type OutboundQueueStatus = z.infer<typeof OutboundQueueStatus>;
+
+export const OutboundQueueRow = z.object({
+	id: z.string(),
+	conversationId: ConversationId,
+	messageId: MessageId,
+	channel: Channel,
+	recipient: z.string(),
+	text: z.string(),
+	status: OutboundQueueStatus,
+	attempts: z.number().int(),
+	lastError: z.string().nullable(),
+	externalMessageId: z.string().nullable(),
+});
+export type OutboundQueueRow = z.infer<typeof OutboundQueueRow>;
+
+/** Ditulis dalam transaksi yang sama dengan `insertOutbound` (A-2.6). */
+export async function insertOutboundQueue(
+	ex: Executor,
+	input: {
+		conversationId: ConversationId;
+		messageId: MessageId;
+		channel: Channel;
+		recipient: string;
+		text: string;
+	},
+): Promise<string> {
+	const [row] = await ex
+		.insert(outboundQueue)
+		.values(input)
+		.returning({ id: outboundQueue.id });
+	return z.string().parse(row?.id);
+}
+
+export async function getOutboundQueue(
+	ex: Executor,
+	id: string,
+	opts: { forUpdate?: boolean } = {},
+): Promise<OutboundQueueRow | null> {
+	const q = ex.select().from(outboundQueue).where(eq(outboundQueue.id, id));
+	const [row] = await (opts.forUpdate ? q.for("update") : q);
+	return row ? OutboundQueueRow.parse(row) : null;
+}
+
+/** Sukses kirim: status `sent`, `attempts` naik satu (percobaan yang berhasil ini). */
+export async function markOutboundSent(
+	ex: Executor,
+	id: string,
+	externalMessageId: string,
+): Promise<void> {
+	await ex
+		.update(outboundQueue)
+		.set({
+			status: "sent",
+			externalMessageId,
+			attempts: sql`${outboundQueue.attempts} + 1`,
+			updatedAt: sql`now()`,
+		})
+		.where(eq(outboundQueue.id, id));
+}
+
+/**
+ * Gagal kirim: `attempts` naik, `lastError` dicatat. `dead: true` = terminal
+ * (retry job habis atau error permanen) — baris ini jadi dead letter-nya.
+ */
+export async function markOutboundFailed(
+	ex: Executor,
+	id: string,
+	input: { error: string; dead: boolean },
+): Promise<void> {
+	await ex
+		.update(outboundQueue)
+		.set({
+			status: input.dead ? "dead" : "failed",
+			attempts: sql`${outboundQueue.attempts} + 1`,
+			lastError: input.error.slice(0, 2000),
+			updatedAt: sql`now()`,
+		})
+		.where(eq(outboundQueue.id, id));
 }
 
 // --- Dead letter ---------------------------------------------------------------

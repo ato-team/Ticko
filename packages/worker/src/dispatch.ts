@@ -1,19 +1,17 @@
 import {
 	assertNever,
 	type ConversationId,
-	controlOwnerFor,
 	type InboundMessage,
 	type MessageId,
-	transition,
 } from "@ticko/domain";
 import {
+	changeStatus,
 	type Db,
 	findActiveOrCreate,
 	findOrCreateContact,
 	getConversation,
 	insertInbound,
 	recordInboundAt,
-	updateStatus,
 } from "@ticko/storage";
 import { enqueue } from "./queue";
 
@@ -67,17 +65,17 @@ export async function receiveInbound(
 		}
 		await recordInboundAt(tx, conv.id, msg.sentAt);
 
-		const next = transition(conv.status, "message_received");
+		const next = await changeStatus(tx, {
+			id: conv.id,
+			event: "message_received",
+		});
 		// findActiveOrCreate tidak pernah mengembalikan `closed`, satu-satunya
 		// status yang menolak message_received.
 		if (!next.ok) {
 			throw new Error(`transisi ditolak: ${conv.status} --message_received-->`);
 		}
-		if (next.status !== conv.status) {
-			await updateStatus(tx, conv.id, next.status);
-		}
 
-		const botScheduled = controlOwnerFor(next.status) === "bot";
+		const botScheduled = next.controlOwner === "bot";
 		if (botScheduled) {
 			await enqueue(tx, {
 				type: "agent_run",

@@ -3,6 +3,7 @@ import { Secret } from "@ticko/domain";
 import { createLogger } from "@ticko/storage/log";
 import { createApp } from "../src/app";
 import type { AuthDeps } from "../src/auth";
+import { noConversations, noDesk } from "./support";
 
 // Test di file ini tidak pernah memanggil /auth atau /me.
 const fakeAuth: AuthDeps = {
@@ -36,8 +37,10 @@ test("GET /health 200 dengan status database dan redis", async () => {
 		checkRedis: up,
 		webhooks: null,
 		auth: fakeAuth,
+		conversations: noConversations,
+		desk: noDesk,
 	});
-	const res = await app.request("/health");
+	const res = await app.request("/api/health");
 	expect(res.status).toBe(200);
 	expect(await res.json()).toEqual({
 		status: "ok",
@@ -54,8 +57,10 @@ test("GET /health 503 saat salah satu dependensi mati", async () => {
 		checkRedis: up,
 		webhooks: null,
 		auth: fakeAuth,
+		conversations: noConversations,
+		desk: noDesk,
 	});
-	const res = await app.request("/health");
+	const res = await app.request("/api/health");
 	expect(res.status).toBe(503);
 	expect(await res.json()).toMatchObject({ database: "down", redis: "ok" });
 });
@@ -68,14 +73,16 @@ test("log request berupa JSON dengan trace_id", async () => {
 		checkRedis: up,
 		webhooks: null,
 		auth: fakeAuth,
+		conversations: noConversations,
+		desk: noDesk,
 	});
-	await app.request("/health");
-	await app.request("/health");
+	await app.request("/api/health");
+	await app.request("/api/health");
 	expect(lines).toHaveLength(2);
 	const [a, b] = lines;
 	expect(typeof a?.trace_id).toBe("string");
 	expect(a?.trace_id).not.toBe(b?.trace_id);
-	expect(a).toMatchObject({ level: "info", path: "/health", status: 200 });
+	expect(a).toMatchObject({ level: "info", path: "/api/health", status: 200 });
 });
 
 test("field kredensial di-redact", () => {

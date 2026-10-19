@@ -7,6 +7,8 @@ import { assertNever } from "@ticko/domain";
 export type AppError =
 	| { kind: "unauthorized" }
 	| { kind: "invalid_credentials" }
+	| { kind: "not_found" }
+	| { kind: "bad_request" }
 	| { kind: "internal"; cause?: unknown };
 
 function json(status: number, code: string, message: string): Response {
@@ -22,6 +24,10 @@ export function toResponse(e: AppError): Response {
 			return json(401, "UNAUTHORIZED", "Silakan login");
 		case "invalid_credentials":
 			return json(401, "INVALID_CREDENTIALS", "Email atau password salah");
+		case "not_found":
+			return json(404, "NOT_FOUND", "Tidak ditemukan");
+		case "bad_request":
+			return json(400, "BAD_REQUEST", "Parameter permintaan tidak valid");
 		case "internal":
 			return json(500, "INTERNAL", "Terjadi kesalahan");
 		default:

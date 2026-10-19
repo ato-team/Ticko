@@ -41,6 +41,12 @@ export const jobStatusEnum = pgEnum("job_status", [
 	"failed",
 	"cancelled",
 ]);
+export const outboundQueueStatusEnum = pgEnum("outbound_queue_status", [
+	"pending",
+	"sent",
+	"failed",
+	"dead",
+]);
 
 // Semua waktu TIMESTAMPTZ, disimpan UTC.
 const ts = (name: string) => timestamp(name, { withTimezone: true });
@@ -58,14 +64,18 @@ export const users = pgTable("users", {
 // Session login internal (B-1.7). `id` adalah sha256(token) hex — token
 // mentah cuma ada di cookie klien, kebocoran baris ini tidak cukup untuk
 // login sebagai user.
-export const sessions = pgTable("sessions", {
-	id: text("id").primaryKey(),
-	userId: uuid("user_id")
-		.notNull()
-		.references(() => users.id),
-	expiresAt: ts("expires_at").notNull(),
-	createdAt: createdAt(),
-});
+export const sessions = pgTable(
+	"sessions",
+	{
+		id: text("id").primaryKey(),
+		userId: uuid("user_id")
+			.notNull()
+			.references(() => users.id),
+		expiresAt: ts("expires_at").notNull(),
+		createdAt: createdAt(),
+	},
+	(t) => [index("sessions_user_id_idx").on(t.userId)],
+);
 
 export const contacts = pgTable(
 	"contacts",
@@ -146,6 +156,7 @@ export const messages = pgTable(
 			t.conversationId,
 			t.createdAt,
 		),
+		index("messages_sender_user_id_idx").on(t.senderUserId),
 	],
 );
 
@@ -216,6 +227,68 @@ export const agentRuns = pgTable(
 		index("agent_runs_conversation_id_created_at_idx").on(
 			t.conversationId,
 			t.createdAt,
+		),
+		index("agent_runs_message_id_idx").on(t.messageId),
+		index("agent_runs_reply_message_id_idx").on(t.replyMessageId),
+	],
+);
+
+// Jejak setiap perubahan status percakapan (A-2.1, AC-2.6). Ditulis dalam
+// transaksi yang sama dengan update conversations.status oleh changeStatus().
+export const conversationEvents = pgTable(
+	"conversation_events",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		conversationId: uuid("conversation_id")
+			.notNull()
+			.references(() => conversations.id),
+		fromStatus: conversationStatusEnum("from_status").notNull(),
+		toStatus: conversationStatusEnum("to_status").notNull(),
+		trigger: text("trigger").notNull(),
+		triggeredByUserId: uuid("triggered_by_user_id").references(() => users.id),
+		createdAt: createdAt(),
+	},
+	(t) => [
+		index("conversation_events_conversation_id_idx").on(t.conversationId),
+		index("conversation_events_triggered_by_user_id_idx").on(
+			t.triggeredByUserId,
+		),
+	],
+);
+
+// Antrian pengiriman outbound (A-2.6). Baris ini yang jadi sumber kebenaran
+// status pengiriman ke channel; `jobs.attempts` (send_message) tetap otoritas
+// retry/backoff — `attempts` di sini cuma cermin untuk observability.
+// `status = 'dead'` adalah dead letter pengiriman keluar (teks + last_error
+// tersimpan di baris ini); tabel `dead_letter` khusus body webhook mentah.
+export const outboundQueue = pgTable(
+	"outbound_queue",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		conversationId: uuid("conversation_id")
+			.notNull()
+			.references(() => conversations.id),
+		messageId: uuid("message_id")
+			.notNull()
+			.unique()
+			.references(() => messages.id),
+		channel: channelEnum("channel").notNull(),
+		// Tujuan kirim (chat id / nomor) — disalin dari conversations saat
+		// enqueue supaya handler tidak perlu join balik ke conversations.
+		recipient: text("recipient").notNull(),
+		text: text("text").notNull(),
+		status: outboundQueueStatusEnum("status").notNull().default("pending"),
+		attempts: integer("attempts").notNull().default(0),
+		lastError: text("last_error"),
+		externalMessageId: text("external_message_id"),
+		createdAt: createdAt(),
+		updatedAt: ts("updated_at").notNull().defaultNow(),
+	},
+	(t) => [
+		index("outbound_queue_conversation_id_idx").on(t.conversationId),
+		check(
+			"outbound_queue_sent_has_external_id_check",
+			sql`${t.status} <> 'sent' OR ${t.externalMessageId} IS NOT NULL`,
 		),
 	],
 );

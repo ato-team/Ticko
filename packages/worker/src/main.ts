@@ -9,6 +9,7 @@ import {
 } from "@ticko/domain";
 import { close, connect } from "@ticko/storage";
 import { createLogger } from "@ticko/storage/log";
+import { connectRedis, publishDeskEvent } from "@ticko/storage/redis";
 import { agentRunHandler } from "./handlers/agent";
 import { sendMessageHandler } from "./handlers/send";
 import { startPoller } from "./poller";
@@ -37,6 +38,8 @@ const systemPrompt = await readFile(
 );
 
 const db = connect(app.database);
+const redis = connectRedis(app.redis.url);
+redis.on("error", (err) => log.warn({ err: err.message }, "redis bermasalah"));
 const channels = buildRegistry(channelsConfig);
 const workerId = `worker-${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
 
@@ -51,6 +54,7 @@ const poller = startPoller({
 			llm: createLlmClient(agentConfig),
 			config: agentConfig,
 			systemPrompt,
+			notifyDesk: (event) => publishDeskEvent(redis, event, log),
 		}),
 	},
 });
@@ -59,7 +63,7 @@ log.info({ worker_id: workerId }, "worker mendengarkan antrian");
 process.once("SIGTERM", async () => {
 	log.info("SIGTERM diterima, menunggu job yang sedang berjalan");
 	await poller.stop();
-	await close(db);
+	await Promise.allSettled([close(db), redis.quit()]);
 	log.info("worker berhenti");
 	process.exit(0);
 });

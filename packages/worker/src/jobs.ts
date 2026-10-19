@@ -7,9 +7,10 @@ export type JobType = z.infer<typeof JobType>;
 // Payload setiap jenis job. Divalidasi saat diambil dari tabel, bukan di-`as`.
 // Setiap payload membawa traceId agar log worker tersambung ke request asal.
 export const JobPayloads = {
+	// send_message hanya membawa referensi ke outbound_queue (A-2.6); channel,
+	// recipient, dan text dibaca handler dari baris itu, bukan dari payload.
 	send_message: z.object({
-		conversationId: ConversationId,
-		text: z.string().min(1),
+		outboundId: z.string(),
 		traceId: z.string(),
 	}),
 	agent_run: z.object({

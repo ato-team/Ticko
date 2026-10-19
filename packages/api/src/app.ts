@@ -1,7 +1,10 @@
 import type { User } from "@ticko/storage";
 import type { Logger } from "@ticko/storage/log";
+import type { DeskSubscriber } from "@ticko/storage/redis";
 import { Hono } from "hono";
 import { type AuthDeps, authRoutes, requireAuth } from "./auth";
+import { type ConversationDeps, conversationRoutes } from "./conversations";
+import { deskStream } from "./stream";
 import { type WebhookDeps, webhookRoutes } from "./webhook";
 
 // `user` hanya diisi oleh requireAuth; route di belakangnya boleh menganggap
@@ -17,6 +20,8 @@ export interface AppDeps {
 	/** null bila channel Telegram tidak diaktifkan. */
 	webhooks: WebhookDeps | null;
 	auth: AuthDeps;
+	conversations: ConversationDeps;
+	desk: Pick<DeskSubscriber, "listen">;
 }
 
 export function createApp(deps: AppDeps): Hono<Env> {
@@ -42,7 +47,11 @@ export function createApp(deps: AppDeps): Hono<Env> {
 		);
 	});
 
-	app.get("/health", async (c) => {
+	// Semua route desk di bawah /api (Caddy meneruskan /api/* apa adanya,
+	// Kontrak 7); webhook tetap di /webhook.
+	const api = new Hono<Env>();
+
+	api.get("/health", async (c) => {
 		const [db, redis] = await Promise.all([
 			deps.checkDatabase(),
 			deps.checkRedis(),
@@ -67,9 +76,15 @@ export function createApp(deps: AppDeps): Hono<Env> {
 		);
 	});
 
+	const auth = requireAuth(deps.auth);
+	api.route("/auth", authRoutes(deps.auth));
+	api.get("/me", auth, (c) => c.json(c.get("user")));
+	api.use("/conversations/*", auth);
+	api.route("/conversations", conversationRoutes(deps.conversations));
+	api.get("/stream", auth, deskStream(deps.desk));
+
+	app.route("/api", api);
 	if (deps.webhooks) app.route("/webhook", webhookRoutes(deps.webhooks));
-	app.route("/auth", authRoutes(deps.auth));
-	app.get("/me", requireAuth(deps.auth), (c) => c.json(c.get("user")));
 
 	return app;
 }

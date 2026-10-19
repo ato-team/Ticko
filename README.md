@@ -3,13 +3,13 @@
 Sistem customer service berbasis AI agent dengan handoff ke manusia yang
 ditegakkan di level arsitektur, bukan di level prompt.
 
-- Runtime: Bun 1.4.x (dipatok) + TypeScript strict
+- Runtime: Bun 1.4.0 (dipatok persis lewat `packageManager`) + TypeScript strict
 - Konteks, alasan keputusan, dan backlog: vault Obsidian, lihat `AGENTS.md`
 - Aturan menulis kode: `CONVENTIONS.md`
 
 ## Setup dari nol
 
-Prasyarat: Bun 1.4.x, Docker dengan Compose v2.
+Prasyarat: Bun 1.4.0 (persis, lihat `packageManager` di `package.json`), Docker dengan Compose v2.
 
 ```
 bun install

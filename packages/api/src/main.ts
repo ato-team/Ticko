@@ -6,14 +6,22 @@ import {
 	deleteSession,
 	findSessionUser,
 	findUserByEmail,
+	getConversationDetail,
 	insertDeadLetter,
+	listInbox,
 	ping,
 } from "@ticko/storage";
 import { createLogger } from "@ticko/storage/log";
-import { connectRedis, pingRedis } from "@ticko/storage/redis";
+import {
+	connectRedis,
+	createDeskSubscriber,
+	pingRedis,
+	publishDeskEvent,
+} from "@ticko/storage/redis";
 import { receiveInbound } from "@ticko/worker";
 import { createApp } from "./app";
 import { SESSION_TTL_MS } from "./auth";
+import { HEARTBEAT_MS } from "./stream";
 
 // Fail fast: config tidak valid mematikan proses sebelum request pertama.
 const [config, channels] = await Promise.all([
@@ -33,6 +41,8 @@ log.info({ config: { app: config, channels } }, "api start");
 
 const db = connect(config.database);
 const redis = connectRedis(config.redis.url);
+redis.on("error", (err) => log.warn({ err: err.message }, "redis bermasalah"));
+const desk = createDeskSubscriber(config.redis.url, log);
 
 const app = createApp({
 	log,
@@ -49,7 +59,21 @@ const app = createApp({
 	webhooks: channels.telegram
 		? {
 				telegramSecret: channels.telegram.webhookSecret,
-				receive: (msg, traceId) => receiveInbound(db, msg, traceId),
+				receive: async (msg, traceId) => {
+					const r = await receiveInbound(db, msg, traceId);
+					// Setelah commit (CONVENTIONS §4); tidak melempar bila Redis mati.
+					if (r.kind === "stored")
+						await publishDeskEvent(
+							redis,
+							{
+								type: "message_received",
+								conversationId: r.conversationId,
+								messageId: r.messageId,
+							},
+							log,
+						);
+					return r;
+				},
 				deadLetter: (input) => insertDeadLetter(db, input),
 			}
 		: null,
@@ -61,16 +85,26 @@ const app = createApp({
 		findSessionUser: (token) => findSessionUser(db, token),
 		deleteSession: (token) => deleteSession(db, token),
 	},
+	conversations: {
+		list: (filter) => listInbox(db, filter),
+		get: (id) => getConversationDetail(db, id),
+	},
+	desk,
 });
 
-const server = Bun.serve({ port: config.server.port, fetch: app.fetch });
+const server = Bun.serve({
+	port: config.server.port,
+	fetch: app.fetch,
+	// Default Bun 10 detik memutus SSE sebelum heartbeat pertama (B-2.4).
+	idleTimeout: (HEARTBEAT_MS / 1000) * 2,
+});
 log.info({ port: server.port }, "api mendengarkan");
 
 process.once("SIGTERM", async () => {
 	log.info("SIGTERM diterima, menutup koneksi");
 	// Selesaikan request yang sedang berjalan, tolak yang baru.
 	await server.stop();
-	await Promise.allSettled([close(db), redis.quit()]);
+	await Promise.allSettled([close(db), redis.quit(), desk.close()]);
 	log.info("api berhenti");
 	process.exit(0);
 });

@@ -14,6 +14,7 @@ import { createApp } from "../src/app";
 import type { AuthDeps } from "../src/auth";
 import { SESSION_TTL_MS } from "../src/auth";
 import { hashPassword } from "../src/lib/password";
+import { noConversations, noDesk } from "./support";
 
 function authDepsFor(tx: Tx): AuthDeps {
 	return {
@@ -33,6 +34,8 @@ function appFor(tx: Tx, log = createLogger("error")) {
 		checkRedis: async () => ({ ok: true }),
 		webhooks: null,
 		auth: authDepsFor(tx),
+		conversations: noConversations,
+		desk: noDesk,
 	});
 }
 
@@ -41,7 +44,7 @@ function login(
 	email: string,
 	password: string,
 ) {
-	return app.request("/auth/login", {
+	return app.request("/api/auth/login", {
 		method: "POST",
 		headers: { "content-type": "application/json" },
 		body: JSON.stringify({ email, password }),
@@ -68,7 +71,7 @@ test("login sukses membuat session; /me mengembalikan user lewat cookie", async 
 		expect(res.status).toBe(200);
 		const cookie = cookieFrom(res);
 
-		const me = await app.request("/me", { headers: { cookie } });
+		const me = await app.request("/api/me", { headers: { cookie } });
 		expect(me.status).toBe(200);
 		expect(await me.json()).toMatchObject({
 			email: "agent@ticko.test",
@@ -80,7 +83,7 @@ test("login sukses membuat session; /me mengembalikan user lewat cookie", async 
 
 test("tanpa cookie → /me 401 UNAUTHORIZED", async () => {
 	await withTestDb(async (tx) => {
-		const res = await appFor(tx).request("/me");
+		const res = await appFor(tx).request("/api/me");
 		expect(res.status).toBe(401);
 		expect(await res.json()).toEqual({
 			error: { code: "UNAUTHORIZED", message: expect.any(String) },
@@ -101,13 +104,13 @@ test("logout menghapus session; /me sesudahnya 401 (AC login/logout)", async () 
 			await login(app, "logout@ticko.test", "rahasia123"),
 		);
 
-		const out = await app.request("/auth/logout", {
+		const out = await app.request("/api/auth/logout", {
 			method: "POST",
 			headers: { cookie },
 		});
 		expect(out.status).toBe(204);
 
-		const me = await app.request("/me", { headers: { cookie } });
+		const me = await app.request("/api/me", { headers: { cookie } });
 		expect(me.status).toBe(401);
 	});
 });

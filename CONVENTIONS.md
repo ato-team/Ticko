@@ -15,7 +15,7 @@ Dokumen ini dibaca saat **menulis kode**, bukan saat planning. Panjangnya sengaj
 
 Aturan di sini bukan selera. Masing-masing lahir dari satu kelas bug yang ingin dicegah, dan alasannya ditulis supaya kalian bisa memutuskan sendiri kapan pengecualian masuk akal.
 
-**Catatan khusus versi ini.** Sebagian aturan di bawah dulu ditegakkan compiler Rust dan sekarang tidak lagi. Bagian-bagian itu ditandai dengan ▲. Aturan bertanda ▲ **wajib masuk checklist reviewer**, karena tidak ada yang akan menangkapnya secara otomatis.
+**Catatan khusus versi ini.** Sebagian aturan di bawah dulu ditegakkan compiler Rust dan sekarang tidak lagi. Bagian-bagian itu ditandai dengan ▲. Sejak Task 0.1, beberapa aturan bertanda ▲ (seperti `as` dan `!`) kini ditegakkan lint; sisanya dan konteks lengkap tetap **wajib masuk checklist reviewer**.
 
 ---
 
@@ -193,6 +193,28 @@ Detail error internal **tidak pernah** dikirim ke klien. Format respons error se
 2. Saat inisialisasi aplikasi, di mana kegagalan memang harus menghentikan proses — dan wajib disertai pesan yang menjelaskan apa yang salah
 3. Pada invarian yang benar-benar dijamin, disertai komentar `// SAFETY: ...` yang menjelaskan kenapa
 
+`// SAFETY: ...` menjelaskan **alasan** untuk reviewer manusia — linter tidak
+membacanya. Plugin Grit (`biome-plugins/no-as-cast.grit`) tidak bisa melihat
+komentar baris sebelumnya, jadi setiap `as` (di luar `as const`) tetap
+di-flag tanpa syarat. Untuk benar-benar meredam lint, tambahkan **juga**
+komentar `// biome-ignore lint/plugin: <alasan>` tepat di atas baris cast
+(Biome mengelompokkan semua diagnostik plugin Grit di bawah kategori generik
+`plugin`, bukan nama per-plugin). Pola lengkapnya:
+
+```ts
+// SAFETY: id ini sudah divalidasi oleh repo.get sebelumnya, tidak pernah undefined
+// biome-ignore lint/plugin: cast diperlukan karena Grit tidak baca komentar SAFETY
+const conv = (await repo.get(id)) as Conversation;
+```
+
+Menulis `// SAFETY: ...` saja **tidak cukup** untuk lolos `bun run lint` —
+keduanya wajib ada.
+
+Catatan implementasi: `no-as-cast.grit` mencocokkan node `TsAsExpression`,
+nama internal/tidak terdokumentasi resmi Biome yang ditemukan lewat coba-coba
+di Biome 2.5.13. Kalau upgrade Biome bikin plugin ini gagal compile, dugaan
+pertama: nama node-kind berganti — cari nama barunya, bukan debug dari nol.
+
 ```ts
 // BENAR
 const cfg = timeConfigSchema.parse(raw);   // melempar saat start dengan pesan Zod yang jelas
@@ -317,7 +339,7 @@ await jobs.enqueueWithDedupe({
 
 Ini aturan yang paling mudah dilanggar, dan di TypeScript versi salahnya bahkan lebih pendek dan lebih menggoda daripada di Rust. Kegagalannya baru muncul saat deploy, dan tidak menghasilkan error — timer hanya lenyap.
 
-**Karena itu aturan ini ditegakkan lint, bukan disiplin.** `setTimeout` dan `setInterval` dilarang di seluruh workspace kecuali di satu file: `packages/worker/src/poller.ts`.
+**Karena itu aturan ini ditegakkan lint, bukan disiplin.** `setTimeout` dan `setInterval` dilarang di seluruh workspace kecuali di dua file: `packages/worker/src/poller.ts` dan `apps/desk/src/lib/tick.ts` (hook `useNow()` untuk re-render hitung mundur di browser — bukan penjadwal; keputusan 2026-09-17). Pengecualian diatur di `includes` plugin `biome-plugins/no-timers.grit`.
 
 ### Penjadwalan dengan dedupe
 
@@ -474,13 +496,14 @@ Satu commit satu perubahan logis. Commit berjudul "fix stuff" atau "wip" di-squa
 
 ### Checklist reviewer
 
-Reviewer memeriksa hal-hal ini, bukan sekadar memberi stempel. Poin bertanda ▲ adalah yang **tidak ada compiler-nya** — kalau reviewer melewatkannya, tidak ada lapis kedua.
+Reviewer memeriksa hal-hal ini, bukan sekadar memberi stempel. Poin bertanda ▲ sebagian ditegakkan lint (`as`, `!`), sisanya hanya bisa diverifikasi manual; kalau reviewer melewatkan yang manual, tidak ada lapis kedua.
 
 - [ ] Seluruh checkbox "Selesai bila" benar-benar terpenuhi, bukan hanya diklaim
 - [ ] ▲ Tidak ada `any`, `as` paksa, `!`, atau `@ts-ignore` di luar pengecualian Bagian 3
 - [ ] ▲ Setiap `switch` atas tipe union ditutup `assertNever`, tanpa cabang `default` yang mengembalikan nilai
 - [ ] ▲ Setiap `await` pada operasi jaringan punya timeout
-- [ ] ▲ Tidak ada `setTimeout` atau `setInterval` di luar `worker/src/poller.ts`
+- [ ] ▲ Tidak ada `setTimeout` atau `setInterval` di luar `worker/src/poller.ts` dan `apps/desk/src/lib/tick.ts`
+- [ ] ▲ Desk: string UI hanya di `apps/desk/src/copy/`; istilah teknis hanya di `copy.advanced.*` / `copy.technical.*`; frontend bercabang pada `code`, bukan `message`
 - [ ] ▲ Data dari luar sistem divalidasi Zod sebelum dipakai, bukan di-`as`
 - [ ] Transaksi database ditutup di jalur error, bukan hanya di jalur sukses
 - [ ] Tidak ada penggabungan string untuk menyusun SQL
@@ -490,6 +513,8 @@ Reviewer memeriksa hal-hal ini, bukan sekadar memberi stempel. Poin bertanda ▲
 - [ ] Kalau menambah interface, test double-nya ikut dalam PR yang sama
 
 **Batas waktu review: 1 hari kerja.** Review yang menumpuk lebih merugikan daripada review yang kurang teliti, karena penulisnya sudah pindah konteks dan harus kembali lagi.
+
+**Branch protection:** GitHub Free tidak mendukung branch protection rules (403 error), jadi pembatasan merge ke `main` ditegakkan lewat kesepakatan tim: semua perubahan masuk melalui PR yang sudah di-approve sesuai checklist di atas. Tidak ada bypass lewat force push.
 
 ---
 
@@ -664,11 +689,22 @@ Jangan pernah mengirim waktu lokal ke backend. Ini sumber bug zona waktu yang pa
 apps/desk/src/
 ├── routes/         ← route TanStack Router
 ├── components/     ← komponen yang dipakai ulang
+├── copy/           ← seluruh string UI (bahasa layar, pesan per code error)
 └── lib/
     ├── api.ts      ← satu-satunya tempat fetch terjadi
     ├── sse.ts      ← langganan EventSource
     └── time.ts     ← satu-satunya tempat konversi waktu
 ```
+
+### Bahasa layar ▲
+
+Desk dipakai orang non-IT (keputusan 2026-10-19). Aturan yang bisa dicek, bukan niat:
+
+1. Semua string UI ada di `apps/desk/src/copy/`, tidak tersebar di komponen.
+2. Kata berikut **dilarang** di `copy/` kecuali namespace `copy.advanced.*` dan `copy.technical.*`: `webhook, token, prompt, RAG, embedding, LLM, MCP, API, JSON, job, queue, SSE, handoff, control_owner, dispatcher, tenant, model`. Satu test memindai modul itu (B-3.8).
+3. Setiap `code` error API punya pesan di `copy.errors[code]`. `message` mentah server hanya fallback untuk `code` yang belum dikenal, dan fallback itu dicatat sebagai warning di console.
+
+Glosarium label ↔ istilah sistem ada di spec desk `docs/superpowers/specs/2026-10-19-desk-design.md` §8.
 
 ### Same-origin
 

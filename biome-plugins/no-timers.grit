@@ -1,0 +1,9 @@
+// AGENTS.md / CONVENTIONS.md §"Timer tidak pernah di memori": setTimeout dan
+// setInterval dilarang di seluruh workspace. Pengecualian (packages/worker/src/poller.ts,
+// apps/desk/src/lib/tick.ts) diatur lewat `includes` plugin ini di biome.json, bukan di sini.
+or {
+	`setTimeout($args)` as $call,
+	`setInterval($args)` as $call
+} where {
+	register_diagnostic(span=$call, message="setTimeout/setInterval dilarang (AGENTS.md: tanpa scheduler in-memory). Timer hidup di tabel jobs, dipoll dari packages/worker/src/poller.ts.", severity="error")
+}
